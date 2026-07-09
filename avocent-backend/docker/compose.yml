@@ -1,0 +1,167 @@
+x-develop-watch: &develop-watch
+  watch:
+    - action: sync
+      path: .
+      target: /app
+      initial_sync: true
+      ignore:
+        - ".env"
+        - ".dockerignore"
+        - ".venv/"
+        - "venv/"
+        - "env/"
+        - "__pycache__/"
+        - "*.py[cod]"
+        - "*.pyo"
+        - "*.pyd"
+        - "*.log"
+        - "media/"
+        - "staticfiles/"
+    - action: rebuild
+      path: requirements.txt
+    - action: rebuild
+      path: docker/Dockerfile
+
+services:
+  frontend:
+    build:
+      context: ../../avocent-frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["sh", "-c", "npm run build && npm run start"]
+    environment:
+      DJANGO_API_URL: http://web:8000
+      NEXT_PUBLIC_DJANGO_BASE_URL: ${NEXT_PUBLIC_DJANGO_BASE_URL:-http://localhost:8000}
+      NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-Avocent Health Centre}
+      API_ENCRYPTION_ENABLED: ${API_ENCRYPTION_ENABLED:-false}
+      API_ENCRYPTION_KEY: ${API_ENCRYPTION_KEY:-}
+      JWT_ACCESS_COOKIE: ${JWT_ACCESS_COOKIE:-avocent_access_token}
+      JWT_REFRESH_COOKIE: ${JWT_REFRESH_COOKIE:-avocent_refresh_token}
+      SESSION_COOKIE: ${SESSION_COOKIE:-avocent_session}
+    ports:
+      - "3000:3000"
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - backend
+
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-avocent} -d ${DB_NAME:-avocent_healthcare}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend
+
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    command: ["sh", "docker/entrypoint-web.sh"]
+    environment:
+      DB_ENGINE: django.db.backends.postgresql
+      DB_HOST: db
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
+      GUNICORN_THREADS: ${GUNICORN_THREADS:-2}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-120}
+      GUNICORN_KEEPALIVE: ${GUNICORN_KEEPALIVE:-5}
+      GUNICORN_MAX_REQUESTS: ${GUNICORN_MAX_REQUESTS:-1000}
+      GUNICORN_MAX_REQUESTS_JITTER: ${GUNICORN_MAX_REQUESTS_JITTER:-100}
+    ports:
+      - "8000:8000"
+    develop:
+      <<: *develop-watch
+    volumes:
+      - ..:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://127.0.0.1:8000/api/schema/ >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - backend
+
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    command: ["sh", "docker/entrypoint-worker.sh"]
+    environment:
+      DB_ENGINE: django.db.backends.postgresql
+      DB_HOST: db
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CELERY_WORKER_CONCURRENCY: ${CELERY_WORKER_CONCURRENCY:-4}
+      CELERY_LOG_LEVEL: ${CELERY_LOG_LEVEL:-info}
+    develop:
+      <<: *develop-watch
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+
+  beat:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    command: ["sh", "docker/entrypoint-beat.sh"]
+    environment:
+      DB_ENGINE: django.db.backends.postgresql
+      DB_HOST: db
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CELERY_LOG_LEVEL: ${CELERY_LOG_LEVEL:-info}
+      CELERY_BEAT_PIDFILE: /tmp/celerybeat.pid
+    develop:
+      <<: *develop-watch
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+
+volumes:
+  redis_data:
+
+networks:
+  backend:
+    name: avocent_backend_network

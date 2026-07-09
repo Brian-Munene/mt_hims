@@ -1,0 +1,30 @@
+services:
+  frontend:
+    env_file:
+      - ../../avocent-frontend/.env.local
+    command: ["npm", "run", "dev"]
+    volumes:
+      - ../../avocent-frontend:/app
+
+  db:
+    environment:
+      POSTGRES_DB: ${DB_NAME:-avocent_healthcare}
+      POSTGRES_USER: ${DB_USER:-avocent}
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - postgres_local_data:/var/lib/postgresql/data
+
+  web:
+    env_file:
+      - ../.env.local
+
+  worker:
+    env_file:
+      - ../.env.local
+
+  beat:
+    env_file:
+      - ../.env.local
+
+volumes:
+  postgres_local_data:

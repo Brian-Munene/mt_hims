@@ -1,0 +1,43 @@
+services:
+  db:
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+
+  web:
+    env_file:
+      - ../.env.prod
+    environment:
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-4}
+      GUNICORN_THREADS: ${GUNICORN_THREADS:-2}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-120}
+      GUNICORN_MAX_REQUESTS: ${GUNICORN_MAX_REQUESTS:-1000}
+      GUNICORN_MAX_REQUESTS_JITTER: ${GUNICORN_MAX_REQUESTS_JITTER:-100}
+    mem_limit: 1g
+    cpus: 1.0
+    stop_grace_period: 30s
+
+  worker:
+    env_file:
+      - ../.env.prod
+    environment:
+      CELERY_WORKER_CONCURRENCY: ${CELERY_WORKER_CONCURRENCY:-4}
+      CELERY_LOG_LEVEL: ${CELERY_LOG_LEVEL:-info}
+    mem_limit: 768m
+    cpus: 1.0
+    stop_grace_period: 30s
+
+  beat:
+    env_file:
+      - ../.env.prod
+    environment:
+      CELERY_LOG_LEVEL: ${CELERY_LOG_LEVEL:-info}
+    mem_limit: 512m
+    cpus: 0.5
+    stop_grace_period: 30s
+
+volumes:
+  postgres_prod_data:

@@ -1,13 +1,11 @@
-
 # Avocent Backend
 
-Backend for the Avocent Health Centre clinic-first HIMS and telemedicine system, built with Django 5.2.
+Django 5.2 backend for the Avocent Health Centre clinic-first HIMS and telemedicine system. Pairs with the Next.js frontend in [`../avocent-frontend`](../avocent-frontend); the Docker setup below runs both.
 
 ## Quick Start
 
-For a minimal local setup:
-
 ```bash
+python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.local.example .env.local
@@ -15,570 +13,109 @@ python manage.py generate_keys --path .env.local
 # edit .env.local for your local Postgres/Redis, then load it into the shell:
 set -a && source .env.local && set +a
 python manage.py migrate
+python manage.py createsuperuser   # needed to sign in to the frontend/admin
 python manage.py runserver
 ```
 
-See [.env.local.example](/Users/brianmunene/Desktop/Avocent%20Health%20Centre/avocent-backend/.env.local.example) for the full list of variables and their defaults.
-
-## Current Status
-
-The project currently provides:
-
-- A custom `User` model using email as the login identifier, with roles including Admin, Doctor, Nurse, Lab Technician, Pharmacist, Receptionist, and Accountant.
-- A modular Django app structure split by business domain.
-- A shared abstract base model for common multi-tenant and audit-friendly fields.
-- Initial database schema and migrations for clinic operations, patient care, bookings, billing, pharmacy, laboratory, telemedicine, compliance, notifications, and audit logging.
-- Field-level encryption for sensitive PHI stored at rest.
-- Django admin registration across the major domain apps.
-- A DRF API with clinic-scoped RBAC enforcement.
-- An operational Booking workflow that carries patients from arrival and triage through consultation, downstream routing, billing, payment, and checkout.
-- JWT, DRF token, session, and basic authentication support, plus self-service password reset via email.
-- OpenAPI documentation via Swagger and ReDoc.
-- Optional AES-256-GCM API payload encryption for `/api/` JSON traffic.
-- Redis-ready cache configuration for telemedicine chat state.
-- Celery worker and Beat scheduling wired to Redis for appointment reminders, M-PESA callback processing, lab result notifications, and hourly compliance auto-flagging of overdue encounters.
-- Email notifications via SMTP (appointment reminders, lab results, password reset), with a delivery log visible in the admin.
-- Practitioner profiles with department, photo, bio, and public slug/online status fields.
-- Financial reporting (revenue by status and payment method) and CSV export/import for the patient roster.
-- Policy management with version history.
-- Production-oriented deployment hardening: a Caddy reverse proxy for automatic TLS, Django security headers (HSTS, secure cookies, SSL redirect), and whitenoise-served static files.
-- Focused API test coverage for auth, nested workflows, and module routes.
-
-## Project Structure
-
-The backend is organized into the following apps:
-
-- `organization`: Clinic and tenancy foundation.
-- `users`: Custom user model, roles, role assignments, and practitioner profiles.
-- `patients`: Patient demographics, identifiers, allergies, and chronic conditions.
-- `booking`: Patient journey orchestration, queue state, workflow events, and operational reports.
-- `encounters`: Appointments and encounters.
-- `clinical`: Clinical notes, diagnoses, and observations.
-- `billing`: Service catalogue, invoices, and invoice lines.
-- `payments`: Payment records including M-PESA-ready fields.
-- `pharmacy`: Medications, stock batches, prescriptions, and prescription items.
-- `laboratory`: Lab catalogue, lab orders, order items, and results.
-- `telemedicine`: Telemedicine sessions and chatbot session state.
-- `compliance`: Compliance records (auto-flagging), policies, and policy version history.
-- `notifications`: In-app notifications, email templates, and the outgoing email log.
-- `audit`: Immutable audit log entries.
-- `core`: Shared abstract base model with common fields.
-
-## Shared Model Rules
-
-Most domain models inherit from `core.CoreModel`, which provides:
-
-- `id` as a UUID primary key
-- `clinic` foreign key for future multi-tenancy
-- `created_at`
-- `updated_at`
-- `created_by`
-- `is_active`
-- `metadata`
-
-## Key Implementation Details
-
-- Django version: `5.2.12`
-- Python version currently in use: `3.12.2`
-- Default time zone: `Africa/Nairobi`
-- Custom auth model: `users.User`
-- Audit log entries are append-only at the model layer and reject updates and deletes.
-- DRF schema generation is powered by `drf-spectacular`.
-- JWT authentication is powered by `djangorestframework-simplejwt`.
-- API filtering uses `django-filter`.
-- API payload encryption uses AES-256-GCM via `cryptography`.
-- PHI field encryption is handled with custom encrypted model fields.
-- Bookings can auto-generate draft billing from consultation, laboratory, and medication activity while keeping invoice lines editable.
-- Redis-backed cache support is environment-driven via `REDIS_URL`.
-- Celery worker/bootstrap files are included and use Redis when broker/backend URLs are configured.
-- Gunicorn is used for containerized app serving.
-
-## Database Configuration
-
-Database configuration is environment-driven in [`avocent_backend/settings.py`](/Users/brianmunene/Desktop/Avocent%20Health%20Centre/avocent-backend/avocent_backend/settings.py).
-
-Current behavior:
-
-- Default database engine: PostgreSQL
-- Default database name: `avocent_healthcare`
-- SQLite fallback is no longer supported
-
-Supported environment variables:
-
-- `DB_ENGINE`
-- `DB_NAME`
-- `DB_USER`
-- `DB_PASSWORD`
-- `DB_HOST`
-- `DB_PORT`
-
-Additional API/auth environment variables:
-
-- `SECRET_KEY`
-- `DEBUG`
-- `ALLOWED_HOSTS`
-- `API_ENCRYPTION_ENABLED`
-- `API_ENCRYPTION_ENFORCE`
-- `API_ENCRYPTION_KEY`
-- `FIELD_ENCRYPTION_KEY`
-- `REDIS_URL`
-- `CELERY_BROKER_URL`
-- `CELERY_RESULT_BACKEND`
-- `CELERY_TASK_ALWAYS_EAGER`
-- `CELERY_TASK_EAGER_PROPAGATES`
-- `TELEMEDICINE_CHAT_STATE_CACHE_TIMEOUT`
-- `APPOINTMENT_REMINDER_LEAD_MINUTES`
-- `BOOKING_AUTO_INVOICE_ON_ROUTE_TO_BILLING` (currently implemented as the default workflow behavior)
-- `FRONTEND_URL` — base URL used to build links embedded in outgoing emails (e.g. password reset)
-- `PASSWORD_RESET_TIMEOUT` — seconds before a password reset link expires
-- `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_USE_TLS`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `DEFAULT_FROM_EMAIL` — SMTP config; email sending is a no-op until `EMAIL_HOST_USER`/`EMAIL_HOST_PASSWORD` are both set
-- `API_DOMAIN`, `APP_DOMAIN` — public hostnames the Caddy reverse proxy routes to the backend/frontend (staging/prod only)
-- `SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, `SECURE_HSTS_SECONDS`, `CSRF_TRUSTED_ORIGINS` — TLS/security hardening, off by default for local dev, enabled in staging/prod behind Caddy
-
-## Local Environment Example
-
-A full example development configuration lives in [.env.local.example](/Users/brianmunene/Desktop/Avocent%20Health%20Centre/avocent-backend/.env.local.example) — copy it to `.env.local`, fill in your local Postgres credentials, and generate the encryption/secret keys as shown in Quick Start above.
-
-## Redis And Celery
-
-The backend now includes production-oriented Redis and Celery foundations:
-
-- `telemedicine.services` caches chat session state in Django cache, which becomes Redis-backed when `REDIS_URL` is set.
-- `encounters.services.schedule_appointment_reminder` queues appointment reminder tasks (also sends an email via `notifications.email.send_notification_email` when configured).
-- `payments.tasks.process_mpesa_callback` processes stored M-PESA callback payloads asynchronously.
-- `laboratory.services.queue_lab_result_notification` queues lab result notification work.
-- `compliance.tasks.flag_overdue_outpatient_encounters` runs hourly via Celery Beat, flagging encounters left unbilled/unclosed for 24+ hours.
-
-`schedule_appointment_reminder` and the Beat schedule both require a real broker (`REDIS_URL` set) to actually fire — without it, `settings.CELERY_BROKER_CONFIGURED` is `False` and scheduling is skipped rather than silently dropped into the in-process `memory://` transport.
-
-Runtime behavior:
-
-- If `REDIS_URL` is not set, Django falls back to local in-memory cache.
-- PostgreSQL remains the only supported relational database backend.
-- Install the dependencies from [requirements.txt](/Users/brianmunene/Desktop/Avocent%20Health%20Centre/avocent-backend/requirements.txt) before running Django, Celery, or Docker builds.
-- For production, run a real Celery worker and beat process against Redis.
-
-The Redis/Celery variables are part of [.env.local.example](/Users/brianmunene/Desktop/Avocent%20Health%20Centre/avocent-backend/.env.local.example) (`REDIS_URL`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `TELEMEDICINE_CHAT_STATE_CACHE_TIMEOUT`, `APPOINTMENT_REMINDER_LEAD_MINUTES`).
-
-Install dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-Run a Celery worker:
-
-```bash
-celery -A avocent_backend worker -l info
-```
-
-For local synchronous task execution during development or tests:
-
-```bash
-export CELERY_TASK_ALWAYS_EAGER=true
-```
-
-## Local Setup
-
-Create and use the existing virtual environment:
-
-```bash
-source .venv/bin/activate
-```
-
-Create a local env file from the template:
-
-```bash
-cp .env.local.example .env.local
-python manage.py generate_keys --path .env.local
-```
-
-Set your PostgreSQL and Redis values in `.env.local` (see [.env.local.example](/Users/brianmunene/Desktop/Avocent%20Health%20Centre/avocent-backend/.env.local.example)), then load them into the shell before running the app:
-
-```bash
-set -a && source .env.local && set +a
-```
-
-Rotate existing key values explicitly if needed:
-
-```bash
-python manage.py generate_keys --force
-```
-
-Run the development server:
-
-```bash
-python manage.py runserver
-```
-
-Run migrations:
-
-```bash
-python manage.py migrate
-```
-
-Run Django system checks:
-
-```bash
-python manage.py check
-```
-
-Run targeted async/cache tests:
-
-```bash
-python manage.py test encounters.tests.test_services payments.tests.test_services laboratory.tests.test_services telemedicine.tests.test_services
-```
-
-## Runtime Processes
-
-Run the Django API:
-
-```bash
-python manage.py runserver
-```
-
-Run a Celery worker:
-
-```bash
-celery -A avocent_backend worker -l info
-```
-
-Run Celery Beat for scheduled work:
-
-```bash
-celery -A avocent_backend beat -l info
-```
-
-Redis is required for production broker/result-backend usage. For local development, cache and task execution can still fall back to non-Redis behavior when Redis is not configured.
+The API is served at `http://localhost:8000`, with interactive docs at `/api/docs/swagger/`. Full variable list/defaults: [.env.local.example](.env.local.example).
 
 ## Docker
 
-Docker assets now live under [`docker/`](/Users/brianmunene/Desktop/Avocent%20Health%20Centre/avocent-backend/docker).
+Assets live under [`docker/`](docker/). Each environment has its own env file and compose override:
 
-Files:
+| Environment | Prepare | Run |
+|---|---|---|
+| Local | `cp .env.local.example .env.local && python manage.py generate_keys --path .env.local` | `docker compose --env-file .env.local -f docker/compose.yml -f docker/compose.local.yml up --build` |
+| Staging | `cp .env.staging.example .env.staging && python manage.py generate_keys --path .env.staging` | `docker compose --env-file .env.staging -f docker/compose.yml -f docker/compose.staging.yml up --build -d` |
+| Prod | `cp .env.prod.example .env.prod && python manage.py generate_keys --path .env.prod` | `docker compose --env-file .env.prod -f docker/compose.yml -f docker/compose.prod.yml up --build -d` |
 
-- [docker/Dockerfile](/Users/brianmunene/Desktop/Avocent%20Health%20Centre/avocent-backend/docker/Dockerfile)
-- [docker/compose.yml](/Users/brianmunene/Desktop/Avocent%20Health%20Centre/avocent-backend/docker/compose.yml)
-- [docker/compose.local.yml](/Users/brianmunene/Desktop/Avocent%20Health%20Centre/avocent-backend/docker/compose.local.yml)
-- [docker/compose.staging.yml](/Users/brianmunene/Desktop/Avocent%20Health%20Centre/avocent-backend/docker/compose.staging.yml)
-- [docker/compose.prod.yml](/Users/brianmunene/Desktop/Avocent%20Health%20Centre/avocent-backend/docker/compose.prod.yml)
-- [docker/Caddyfile](/Users/brianmunene/Desktop/Avocent%20Health%20Centre/avocent-backend/docker/Caddyfile)
-- [docker/entrypoint-web.sh](/Users/brianmunene/Desktop/Avocent%20Health%20Centre/avocent-backend/docker/entrypoint-web.sh)
-- [docker/entrypoint-worker.sh](/Users/brianmunene/Desktop/Avocent%20Health%20Centre/avocent-backend/docker/entrypoint-worker.sh)
-- [docker/entrypoint-beat.sh](/Users/brianmunene/Desktop/Avocent%20Health%20Centre/avocent-backend/docker/entrypoint-beat.sh)
-- [.env.local.example](/Users/brianmunene/Desktop/Avocent%20Health%20Centre/avocent-backend/.env.local.example)
-- [.env.staging.example](/Users/brianmunene/Desktop/Avocent%20Health%20Centre/avocent-backend/.env.staging.example)
-- [.env.prod.example](/Users/brianmunene/Desktop/Avocent%20Health%20Centre/avocent-backend/.env.prod.example)
+- Local Postgres runs passwordless (`POSTGRES_HOST_AUTH_METHOD=trust`); staging/prod require a real password.
+- Staging/prod also run a `caddy` service in front of `web`/`frontend` for automatic TLS (Let's Encrypt via `API_DOMAIN`/`APP_DOMAIN`).
+- `entrypoint-web.sh` runs migrations + `collectstatic` (served by whitenoise) before starting gunicorn, so the Django admin and Swagger/ReDoc UI have working static assets with `DEBUG=false`.
+- Add `--watch` instead of `--build` for local file-sync dev mode.
+- `ALLOWED_HOSTS` must include the internal service name `web` (not just public domains) — the frontend container reaches Django as `http://web:8000`, and Django rejects the request otherwise.
 
-Local setup uses passwordless Postgres inside Docker via `POSTGRES_HOST_AUTH_METHOD=trust`.
-Staging uses a normal password-protected PostgreSQL container.
-Production uses a normal password-protected PostgreSQL container.
+## Stack & Structure
 
-Staging and production also run a `caddy` service (`caddy:2-alpine`) in front of `web` and `frontend`, terminating TLS automatically via Let's Encrypt using the `API_DOMAIN`/`APP_DOMAIN` env vars — no manual certificate management. `entrypoint-web.sh` runs `collectstatic` (served by whitenoise) before starting gunicorn, so Django admin and the Swagger/ReDoc UI have working static assets with `DEBUG=false`.
+- Django 5.2.12, Python 3.12, PostgreSQL only (no SQLite fallback), Redis for cache + Celery broker.
+- Custom `users.User` (email login) with roles: Admin, Doctor, Nurse, Lab Technician, Pharmacist, Receptionist, Accountant.
+- Most models inherit `core.CoreModel`: UUID pk, `clinic` FK, `created_at`/`updated_at`/`created_by`, `is_active`, `metadata`.
+- Auth: JWT (`djangorestframework-simplejwt`), DRF token, session, plus self-service email password reset.
+- API docs via `drf-spectacular` (Swagger/ReDoc); filtering via `django-filter`.
+- Optional AES-256-GCM payload encryption for `/api/` traffic (below) plus field-level PHI encryption at rest.
+- Celery + Redis power appointment reminders, M-PESA callback processing, lab result notifications, and hourly compliance auto-flagging (Beat) — all require `REDIS_URL` to actually fire; without it, scheduling is skipped rather than silently dropped.
+- Email notifications via SMTP (reminders, lab results, password reset) with a delivery log in the admin — inert until `EMAIL_HOST_USER`/`EMAIL_HOST_PASSWORD` are set.
 
-Prepare your local env file:
+Apps:
 
-```bash
-cp .env.local.example .env.local
-python manage.py generate_keys --path .env.local
-```
+| App | Purpose |
+|---|---|
+| `organization` | Clinic/tenancy foundation |
+| `users` | Auth, roles, practitioner profiles, departments |
+| `patients` | Demographics, identifiers, allergies, chronic conditions |
+| `booking` | Patient journey orchestration, queue, workflow events |
+| `encounters` | Appointments & encounters |
+| `clinical` | Notes, diagnoses, observations |
+| `billing` | Services, invoices, invoice lines |
+| `payments` | Payment records (M-PESA-ready) |
+| `pharmacy` | Medications, stock, prescriptions |
+| `laboratory` | Lab catalogue, orders, results |
+| `telemedicine` | Sessions, chatbot state |
+| `compliance` | Auto-flagging, policies, policy versions |
+| `notifications` | In-app notifications, email templates, email log |
+| `audit` | Immutable audit log |
+| `core` | Shared base model |
 
-Start the local stack:
+## Environment Variables
 
-```bash
-docker compose --env-file .env.local -f docker/compose.yml -f docker/compose.local.yml up --build
-```
+| Category | Variables |
+|---|---|
+| Django core | `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS` |
+| Database | `DB_ENGINE`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT` |
+| Redis/Celery | `REDIS_URL`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `CELERY_TASK_ALWAYS_EAGER`, `CELERY_TASK_EAGER_PROPAGATES`, `TELEMEDICINE_CHAT_STATE_CACHE_TIMEOUT`, `APPOINTMENT_REMINDER_LEAD_MINUTES` |
+| Email | `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_USE_TLS`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `DEFAULT_FROM_EMAIL`, `FRONTEND_URL`, `PASSWORD_RESET_TIMEOUT` |
+| API/field encryption | `API_ENCRYPTION_ENABLED`, `API_ENCRYPTION_ENFORCE`, `API_ENCRYPTION_KEY`, `FIELD_ENCRYPTION_KEY` |
+| TLS/reverse proxy (staging/prod) | `API_DOMAIN`, `APP_DOMAIN`, `ACME_EMAIL`, `SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, `SECURE_HSTS_SECONDS`, `CSRF_TRUSTED_ORIGINS` |
 
-Start the local stack in watch mode:
-
-```bash
-docker compose --env-file .env.local -f docker/compose.yml -f docker/compose.local.yml up --watch
-```
-
-Run in the background:
-
-```bash
-docker compose --env-file .env.local -f docker/compose.yml -f docker/compose.local.yml up --build -d
-```
-
-Prepare your staging env file:
-
-```bash
-cp .env.staging.example .env.staging
-python manage.py generate_keys --path .env.staging
-```
-
-Start staging:
-
-```bash
-docker compose --env-file .env.staging -f docker/compose.yml -f docker/compose.staging.yml up --build -d
-```
-
-Prepare your production env file:
-
-```bash
-cp .env.prod.example .env.prod
-python manage.py generate_keys --path .env.prod
-```
-
-Start production-style Compose:
-
-```bash
-docker compose --env-file .env.prod -f docker/compose.yml -f docker/compose.prod.yml up --build -d
-```
+Full defaults: [.env.local.example](.env.local.example).
 
 ## Testing
 
-Run the full suite:
-
 ```bash
-python manage.py test
-```
-
-Run tests by layer:
-
-```bash
-python manage.py test users.tests
-python manage.py test patients.tests
-python manage.py test encounters.tests
-python manage.py test clinical.tests
-python manage.py test billing.tests
-python manage.py test pharmacy.tests
-python manage.py test laboratory.tests
-python manage.py test telemedicine.tests
-```
-
-Run focused suites:
-
-```bash
-python manage.py test users.tests.test_serializers
-python manage.py test encounters.tests.test_services
-python manage.py test billing.tests.test_view
-python manage.py test core.tests.test_management_commands
+python manage.py test                                 # full suite
+python manage.py test users.tests                      # one app
+python manage.py test users.tests.test_serializers     # one module
 ```
 
 ## API Surface
 
-Current API capabilities include:
+- Auth — `/api/auth/`: login, logout, JWT, password reset, users/roles/departments/practitioners (`POST /api/auth/practitioners/` supports unified onboarding: user + profile + role in one request)
+- `/api/patients/` (+ `export-csv`/`import-csv`), `/api/booking/`, `/api/encounters/`, `/api/clinical/`
+- `/api/billing/` (+ `/report/` for revenue breakdowns), `/api/pharmacy/`, `/api/laboratory/`, `/api/telemedicine/`
+- `/api/organization/`, `/api/compliance/`, `/api/notifications/` (+ email log), `/api/audit/`
+- Docs — `/api/schema/`, `/api/docs/swagger/`, `/api/docs/redoc/`
+- Nested flows — `patient -> encounters/notes`, `encounter -> diagnoses/observations/prescriptions/lab-orders`
+- Booking lifecycle — check-in → triage → consultation → route-to-lab/pharmacy/billing → generate-invoice → checkout, plus `queue-board`/`reports/summary` for ops monitoring
 
-- User, role, department, practitioner, and current-user endpoints
-  - `POST /api/auth/practitioners/` supports unified onboarding, accepting nested `user_data` and `assign_roles` to create the User, Profile, and Role assignment in a single transactional request.
-- Patient registration and patient support records
-  - `GET /api/patients/patients/export-csv/` and `POST /api/patients/patients/import-csv/` for bulk roster handling.
-- Booking lifecycle, queue board, workflow events, and booking reports
-- Appointments and encounters
-- Clinical notes, diagnoses, and observations
-- Billing, invoice lines, and payments
-  - `GET /api/billing/report/` returns revenue totals broken down by status and payment method over a date range.
-- Pharmacy, laboratory, and telemedicine modules
-- Compliance records, policies, and policy version history
-- In-app notifications, email templates, and the outgoing email delivery log
-- Nested flows such as:
-  - `patient -> encounters`
-  - `patient -> notes`
-  - `encounter -> diagnoses`
-  - `encounter -> observations`
-  - `encounter -> prescriptions`
-  - `encounter -> lab orders`
+## Encrypted API Payloads (optional)
 
-Authentication endpoints:
+AES-256-GCM encryption for `/api/` JSON, on top of (not instead of) TLS. Disabled by default.
 
-- DRF token auth: `/api/auth/login/`, `/api/auth/logout/`
-- JWT auth: `/api/auth/jwt/token/`, `/api/auth/jwt/refresh/`, `/api/auth/jwt/verify/`
-- Password reset: `/api/auth/password-reset/`, `/api/auth/password-reset/confirm/` (unauthenticated; always returns a generic response so registered emails aren't leaked)
-- Current user: `/api/auth/me/`
+- Enable with `API_ENCRYPTION_ENABLED=true` + a base64, 32-byte `API_ENCRYPTION_KEY`; enforce with `API_ENCRYPTION_ENFORCE=true` (rejects plaintext writes).
+- Client sends header `X-Encrypted-Payload: 1` and body `{"alg": "AES-256-GCM", "nonce": "...", "ciphertext": "..."}`; the response comes back in the same envelope.
+- Associated data: request decryption uses the request path, response encryption uses the literal string `"response"` — clients must mirror this.
+- Docs/schema endpoints are always excluded.
 
-API documentation endpoints:
-
-- OpenAPI schema: `/api/schema/`
-- Swagger UI: `/api/docs/swagger/`
-- ReDoc: `/api/docs/redoc/`
-
-API module prefixes:
-
-- `/api/auth/`
-- `/api/patients/`
-- `/api/booking/`
-- `/api/encounters/`
-- `/api/clinical/`
-- `/api/billing/`
-- `/api/pharmacy/`
-- `/api/laboratory/`
-- `/api/telemedicine/`
-- `/api/organization/`
-- `/api/compliance/` — compliance records, policies, and policy versions
-- `/api/notifications/` — in-app notifications, email templates, and the email delivery log
-- `/api/audit/`
-
-Booking workflow highlights:
-
-- `POST /api/booking/bookings/` creates walk-in, scheduled, or telemedicine bookings
-- `POST /api/booking/bookings/{id}/check-in/` starts the front-desk workflow
-- `POST /api/booking/bookings/{id}/start-triage/` and `complete-triage/` move patients through triage
-- `POST /api/booking/bookings/{id}/start-consultation/` opens the clinical encounter
-- `POST /api/booking/bookings/{id}/route-to-lab/`, `route-to-pharmacy/`, and `route-to-billing/` move the patient between stations
-- `POST /api/booking/bookings/{id}/generate-invoice/` generates or refreshes editable invoice lines from consultation, lab, and medication activity
-- `POST /api/booking/bookings/{id}/checkout/` only succeeds once payment state is `paid`
-- `GET /api/booking/bookings/queue-board/` and `GET /api/booking/bookings/reports/summary/` support operations monitoring
-
-## Encrypted API Usage
-
-The backend supports optional AES-256-GCM encryption for `/api/` JSON requests and responses.
-
-Notes:
-
-- This is application-layer payload encryption. It complements HTTPS and does not replace TLS.
-- Encryption is disabled by default.
-- When enabled, clients can send encrypted JSON by setting `X-Encrypted-Payload: 1`.
-- If `API_ENCRYPTION_ENFORCE=true`, plaintext JSON write requests to `/api/` are rejected.
-- Docs and schema endpoints are excluded from encryption so Swagger/ReDoc remain usable.
-
-### 1. Generate an encryption key
-
-`API_ENCRYPTION_KEY` must be base64-encoded and decode to exactly 32 bytes.
-
-Example:
-
-```bash
-python - <<'PY'
-import base64, os
-print(base64.b64encode(os.urandom(32)).decode())
-PY
-```
-
-Then export:
-
-```bash
-export API_ENCRYPTION_ENABLED=true
-export API_ENCRYPTION_KEY="<base64-32-byte-key>"
-```
-
-Optional strict mode:
-
-```bash
-export API_ENCRYPTION_ENFORCE=true
-```
-
-### 2. Encrypted request format
-
-Clients encrypt the raw JSON request body with AES-256-GCM and send this envelope:
-
-```json
-{
-  "alg": "AES-256-GCM",
-  "nonce": "<base64-nonce>",
-  "ciphertext": "<base64-ciphertext-and-tag>"
-}
-```
-
-Required request header:
-
-```http
-X-Encrypted-Payload: 1
-Content-Type: application/json
-```
-
-Example encrypted login request envelope:
-
-```json
-{
-  "alg": "AES-256-GCM",
-  "nonce": "7SJ4g1l3v0vC8iQp",
-  "ciphertext": "R7VQxg2pWmM0lJx6Jf8mJ1zQh6o5nYl3u7n+u0jG5IYc1k4="
-}
-```
-
-The plaintext before encryption would be:
-
-```json
-{
-  "username": "doctor@example.com",
-  "password": "secret123"
-}
-```
-
-### 3. Encrypted response format
-
-When the request includes `X-Encrypted-Payload: 1`, JSON API responses are returned in the same encrypted envelope format:
-
-```json
-{
-  "alg": "AES-256-GCM",
-  "nonce": "<base64-nonce>",
-  "ciphertext": "<base64-ciphertext-and-tag>"
-}
-```
-
-Response headers:
-
-```http
-X-Encrypted-Payload: 1
-X-Encryption-Alg: AES-256-GCM
-```
-
-After decryption, a login response might look like:
-
-```json
-{
-  "token": "0d7c...",
-  "user": {
-    "id": "user-uuid",
-    "clinic": "clinic-uuid",
-    "email": "doctor@example.com",
-    "phone": "+254700000000",
-    "is_staff": true,
-    "is_active": true,
-    "is_superuser": false,
-    "role_names": ["Doctor"]
-  }
-}
-```
-
-### 4. Associated data
-
-Current middleware behavior:
-
-- Request decryption uses the request path as AES-GCM associated data.
-- Response encryption uses `response` as associated data.
-
-Clients must mirror that behavior exactly when encrypting/decrypting payloads.
-
-## Schema Coverage
-
-The current schema includes:
-
-- Clinic and tenancy setup
-- Users and RBAC
-- Patient management
-- Appointments and encounters
-- Clinical documentation
-- Billing and invoicing
-- Payments
-- Pharmacy and inventory
-- Laboratory workflows
-- Telemedicine session tracking
-- Audit and compliance logging
+Implementation: [core/middleware.py](core/middleware.py), [core/encryption.py](core/encryption.py).
 
 ## Open Gaps
 
-The project still has meaningful work remaining in these areas:
-
-- Public or mobile client SDKs for the encrypted API transport
-- A real M-PESA webhook endpoint that feeds payment callback processing automatically
-- Richer pricing rules for practitioner-specific consultation fees and service bundles during automatic invoice generation
-- SMS or WhatsApp notification adapters (email is implemented; SMS/WhatsApp are still task payload stubs)
-- Doctor compliance documents, video consultations (Whereby), 2FA/TOTP, and a public-facing booking portal
-- Multi-clinic/multi-tenancy (the `clinic` foreign key exists on every model, but the platform runs single-tenant today)
-- Kubernetes or managed-platform deployment (current hardening targets a single Docker Compose host behind Caddy)
-- Error monitoring/observability (e.g. Sentry) and an automated database backup strategy
-- Full end-to-end workflow coverage across all API modules
-- Stronger service-layer orchestration beyond serializer and viewset validation
-
-## Entry Points
-
-- Django settings: [`avocent_backend/settings.py`](/Users/brianmunene/Desktop/Avocent%20Health%20Centre/avocent-backend/avocent_backend/settings.py)
-- URL configuration: [`avocent_backend/urls.py`](/Users/brianmunene/Desktop/Avocent%20Health%20Centre/avocent-backend/avocent_backend/urls.py)
-- Management script: [`manage.py`](/Users/brianmunene/Desktop/Avocent%20Health%20Centre/avocent-backend/manage.py)
-- API encryption middleware: [`core/middleware.py`](/Users/brianmunene/Desktop/Avocent%20Health%20Centre/avocent-backend/core/middleware.py)
-- API encryption helpers: [`core/encryption.py`](/Users/brianmunene/Desktop/Avocent%20Health%20Centre/avocent-backend/core/encryption.py)
-
+- Public/mobile SDKs for the encrypted API transport
+- A real M-PESA webhook (currently processes stored callback payloads, not a live inbound endpoint)
+- Richer per-practitioner pricing rules for auto-generated invoices
+- SMS/WhatsApp notifications (email is implemented; these are still stubs)
+- Doctor compliance documents, video consultations (Whereby), 2FA/TOTP, public booking portal
+- Multi-clinic/multi-tenancy (schema supports it via `clinic` FK; platform is single-tenant today)
+- Kubernetes/managed-platform deployment (current hardening targets a single Docker Compose host behind Caddy)
+- Error monitoring (e.g. Sentry) and automated database backups
+- Full end-to-end workflow test coverage; deeper service-layer orchestration

@@ -33,3 +33,20 @@ Tracked items from the post-Feature-Gap-Closure-Plan follow-up work. Items marke
     - **Fix applied:** `python manage.py migrate` was run against the dev database. Verified via `python manage.py showmigrations`: both `compliance.0001_initial` and `notifications.0001_initial` now show `[X]` (applied).
 
 12. **Manual cross-role QA walkthrough** (Admin/Doctor/Nurse/Lab Tech/Pharmacist/Receptionist) of the completed Feature Gap Closure Plan work. User's own task, not yet performed.
+
+13. ~~**Implement self-service password reset**~~ — **RESOLVED.** No new models/migrations — uses Django's built-in `PasswordResetTokenGenerator` (stateless, single-use in practice since it embeds the password hash, expires via `PASSWORD_RESET_TIMEOUT`). Backend: `PasswordResetRequestAPIView`/`PasswordResetConfirmAPIView` in `users/views.py`, mounted at `/api/auth/password-reset/` and `/api/auth/password-reset/confirm/` (first `AllowAny` endpoints in this codebase); the request endpoint always returns the same generic message regardless of whether the email exists, to avoid leaking registered accounts. Frontend: `/forgot-password` and `/reset-password` pages, a "Forgot password?" link on the login form. Reuses the existing `send_notification_email` helper from the P2 email work.
+    - **Verified**: 6 new backend tests (`users/tests/test_password_reset.py`) covering enumeration-safety, valid/invalid/reused tokens, and weak-password rejection; full backend suite 143/143 passing; frontend `tsc` and `next build` both clean.
+
+14. ~~**Deployment readiness pass**~~ — **RESOLVED** (scoped to a single Docker Compose host, not Kubernetes — see note below). Fixed five concrete gaps found during a deployment audit:
+    - Initialized git version control for the project (previously had none), with a `.gitignore` that excludes real secret-bearing env files (`.env.local`/`.env.staging`/`.env.prod`) while keeping the `.example` templates tracked.
+    - Rotated the placeholder `SECRET_KEY`/blank `API_ENCRYPTION_KEY`/`FIELD_ENCRYPTION_KEY` in `.env.staging` and `.env.prod` via the existing `manage.py generate_keys` command — previously PHI field encryption silently fell back to `sha256(SECRET_KEY)` with `SECRET_KEY` still at its Django-generated placeholder value.
+    - Added a `caddy` reverse-proxy service (`docker/Caddyfile`, wired into `compose.staging.yml`/`compose.prod.yml`) for automatic Let's Encrypt TLS, plus matching Django security settings (`SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, `SECURE_HSTS_SECONDS`, `CSRF_TRUSTED_ORIGINS`) — all off by default so local dev is unaffected.
+    - Added whitenoise + `STATIC_ROOT`/`STORAGES` + a `collectstatic` step in `entrypoint-web.sh` — previously Django admin and the Swagger/ReDoc UI would 404 on static assets with `DEBUG=false`.
+    - Fixed the frontend `.dockerignore` to exclude `.env*` so local env values don't get baked into the image layer.
+    - **Still open, not attempted**: getting the Celery worker + beat processes actually running continuously in the target environment (see item 2 — the wiring is fixed, but nothing keeps them running today), error monitoring/observability (e.g. Sentry), an automated database backup strategy, and Kubernetes/managed-platform deployment — deliberately out of scope since this is a single clinic, not multi-tenant yet, so Compose on one host is the appropriate target rather than K8s.
+
+15. **Doctor compliance documents** (P3) — explicitly deferred for now, per your call.
+
+16. **Public booking portal** (P3) — explicitly deferred for now, per your call. Research from a comparator-system interview (see project notes) suggests this is a high-value item to prioritize once picked back up, since no comparator system interviewed offers any self-service booking at all.
+
+17. **Remaining P3 items, not yet started**: Whereby video integration for telemedicine, 2FA/TOTP authentication, multi-clinic/multi-tenancy.

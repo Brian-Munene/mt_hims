@@ -5,8 +5,8 @@ from notifications.views import EmailLogViewSet, NotificationTemplateViewSet, No
 app_name = "notifications"
 
 router = DefaultRouter()
-router.register("", NotificationViewSet, basename="notification")
 router.register("email-logs", EmailLogViewSet, basename="email-log")
 router.register("templates", NotificationTemplateViewSet, basename="notification-template")
+router.register("", NotificationViewSet, basename="notification")
 
 urlpatterns = router.urls

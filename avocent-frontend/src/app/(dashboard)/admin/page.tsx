@@ -53,7 +53,7 @@ export default async function AdminPage() {
         initialItems={clinics.results}
         fields={[
           { name: "name", label: "Name", required: true },
-          { name: "code", label: "Code", required: true },
+          { name: "registration_number", label: "Registration number", required: true },
           { name: "is_active", label: "Active", type: "checkbox" },
         ]}
       />

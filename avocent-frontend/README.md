@@ -95,10 +95,11 @@ This starts Django on `http://localhost:8000` and the Next.js frontend on `http:
 - Tokens are stored in httpOnly cookies
 - Dashboard pages fetch data on the server with those cookies
 - Browser-side mutations should go through `src/app/api/*` route handlers
+- Self-service password reset: `/forgot-password` requests a reset email, `/reset-password` (with `uid`/`token` query params from that email) sets a new password — both proxy to the unauthenticated Django password-reset endpoints
 
 ## Module structure
 
-- `src/app/(auth)` for login/logout
+- `src/app/(auth)` for login, logout, forgot-password, and reset-password
 - `src/app/(dashboard)` for authenticated clinic modules
 - `src/lib/api` for typed Django fetch wrappers
 - `src/lib/rbac.ts` for role checks aligned to the backend

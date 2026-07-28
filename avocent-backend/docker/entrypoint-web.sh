@@ -14,6 +14,7 @@ if [ -n "${REDIS_URL}" ]; then
 fi
 
 python manage.py migrate --noinput
+python manage.py collectstatic --noinput
 
 exec gunicorn avocent_backend.wsgi:application \
   --bind 0.0.0.0:8000 \

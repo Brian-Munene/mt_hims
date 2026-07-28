@@ -1,16 +1,20 @@
 services:
   frontend:
+    build:
+      target: deps
     env_file:
       - ../../avocent-frontend/.env.local
     command: ["npm", "run", "dev"]
     volumes:
       - ../../avocent-frontend:/app
+      - /app/node_modules
 
   db:
     environment:
       POSTGRES_DB: ${DB_NAME:-avocent_healthcare}
       POSTGRES_USER: ${DB_USER:-avocent}
-      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-avocent_dev_password}
+      POSTGRES_HOST_AUTH_METHOD: md5
     volumes:
       - postgres_local_data:/var/lib/postgresql/data
 

@@ -68,6 +68,17 @@ SECRET_KEY = _get_env(
 DEBUG = _get_bool_env("DEBUG", default=True)
 ALLOWED_HOSTS = _get_list_env("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 
+# TLS / security hardening — off by default so local dev (no reverse proxy in front) is
+# unaffected; staging/prod turn these on since Caddy terminates TLS in front of `web`.
+SECURE_SSL_REDIRECT = _get_bool_env("SECURE_SSL_REDIRECT", default=False)
+SESSION_COOKIE_SECURE = _get_bool_env("SESSION_COOKIE_SECURE", default=False)
+CSRF_COOKIE_SECURE = _get_bool_env("CSRF_COOKIE_SECURE", default=False)
+SECURE_HSTS_SECONDS = int(_get_env("SECURE_HSTS_SECONDS", "0"))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = SECURE_HSTS_SECONDS > 0
+SECURE_HSTS_PRELOAD = SECURE_HSTS_SECONDS > 0
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+CSRF_TRUSTED_ORIGINS = _get_list_env("CSRF_TRUSTED_ORIGINS", default=[])
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -98,6 +109,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "core.middleware.APIEncryptionMiddleware",
@@ -160,8 +172,18 @@ USE_TZ = True
 APPEND_SLASH = True
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+}
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_USER_MODEL = "users.User"

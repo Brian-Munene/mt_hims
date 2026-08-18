@@ -1,20 +1,15 @@
 import Link from "next/link";
 
-import { CreateBookingForm } from "@/components/booking/create-booking-form";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { listClinics, listPractitioners, listUsers } from "@/lib/api/admin";
 import { requireUser } from "@/lib/auth";
 import { getBookingSummary, listBookings } from "@/lib/api/booking";
-import { listAppointments } from "@/lib/api/encounters";
-import { listPatients } from "@/lib/api/patients";
 import { formatDateTime } from "@/lib/format";
-import { buildPractitionerOptions } from "@/lib/options";
-import { assertModuleAccess, hasAnyRole } from "@/lib/rbac";
+import { assertModuleAccess } from "@/lib/rbac";
 import { cn } from "@/lib/utils";
 
 type SearchValue = string | string[] | undefined;
@@ -32,8 +27,7 @@ export default async function BookingPage({
   assertModuleAccess(user, "booking");
 
   const query = await searchParams;
-  const isAdmin = hasAnyRole(user, ["Admin"]);
-  const [bookings, summary, patients, appointments, practitioners, users, clinics] = await Promise.all([
+  const [bookings, summary] = await Promise.all([
     listBookings({
       search: first(query.search),
       status: first(query.status),
@@ -43,31 +37,7 @@ export default async function BookingPage({
       ordering: first(query.ordering),
     }),
     getBookingSummary(),
-    listPatients({ ordering: "first_name" }),
-    listAppointments({ status: "scheduled", ordering: "scheduled_time" }),
-    listPractitioners(),
-    isAdmin ? listUsers() : Promise.resolve({ results: [], count: 0, next: null, previous: null }),
-    isAdmin ? listClinics() : Promise.resolve({ results: [], count: 0, next: null, previous: null }),
   ]);
-
-  const patientLabelById = new Map(
-    patients.results.map((patient) => [patient.id, `${patient.first_name} ${patient.last_name}`]),
-  );
-  const userById = new Map(users.results.map((staffUser) => [staffUser.id, staffUser]));
-  const practitionerOptions = buildPractitionerOptions(practitioners.results, userById);
-  const practitionerLabelById = new Map(practitionerOptions.map((o) => [o.value, o.label]));
-  const appointmentOptions = appointments.results.map((appointment) => ({
-    value: appointment.id,
-    label: [
-      patientLabelById.get(appointment.patient) ?? "Unknown patient",
-      practitionerLabelById.get(appointment.practitioner) ?? `Practitioner ${appointment.practitioner.slice(0, 8)}`,
-      formatDateTime(appointment.scheduled_time),
-    ].join(" • "),
-  }));
-  const clinicOptions = clinics.results.map((clinic) => ({
-    value: clinic.id,
-    label: `${clinic.name} (${clinic.code})`,
-  }));
 
   return (
     <div className="space-y-8">
@@ -76,6 +46,15 @@ export default async function BookingPage({
         title="Booking and patient flow"
         description="Create bookings, monitor operational queues, and drive patients through arrival, triage, consultation, billing, and checkout."
       />
+
+      <div className="flex justify-end gap-2">
+        <Link href="/queue" className={cn(buttonVariants({ variant: "outline" }))}>
+          Queue board
+        </Link>
+        <Link href="/booking/new" className={cn(buttonVariants())}>
+          Add booking
+        </Link>
+      </div>
 
       {/* Summary stat cards */}
       <div className="grid gap-4 md:grid-cols-3">
@@ -177,7 +156,7 @@ export default async function BookingPage({
               {bookings.results.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="py-10 text-center text-sm text-slate-400">
-                    No bookings found. Adjust the filters or create a new booking below.
+                    No bookings found. Adjust the filters or use “Add booking” to create one.
                   </TableCell>
                 </TableRow>
               ) : (
@@ -205,14 +184,6 @@ export default async function BookingPage({
           </Table>
         </CardContent>
       </Card>
-
-      {/* Create booking */}
-      <CreateBookingForm
-        patients={patients.results}
-        appointments={appointmentOptions}
-        practitioners={practitionerOptions}
-        clinics={clinicOptions}
-      />
     </div>
   );
 }

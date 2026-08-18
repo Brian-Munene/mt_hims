@@ -15,7 +15,9 @@ class UserAdmin(DjangoUserAdmin):
         (None, {"fields": ("email", "password")}),
         ("Clinic", {"fields": ("clinic", "created_by", "metadata")}),
         ("Personal info", {"fields": ("phone",)}),
-        ("Permissions", {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")}),
+        # is_staff/is_superuser are intentionally not editable anywhere;
+        # admin access is granted only via the createsuperuser command.
+        ("Permissions", {"fields": ("is_active", "groups", "user_permissions")}),
         ("Important dates", {"fields": ("last_login",)}),
     )
     add_fieldsets = (
@@ -23,7 +25,7 @@ class UserAdmin(DjangoUserAdmin):
             None,
             {
                 "classes": ("wide",),
-                "fields": ("email", "clinic", "phone", "password1", "password2", "is_staff", "is_superuser"),
+                "fields": ("email", "clinic", "phone", "password1", "password2"),
             },
         ),
     )

@@ -191,7 +191,6 @@ class PasswordResetConfirmAPIView(generics.GenericAPIView):
                     "email": "nurse@example.com",
                     "phone": "+254700000000",
                     "password": "secret123",
-                    "is_staff": True,
                     "is_active": True,
                 },
                 request_only=True,
@@ -201,7 +200,7 @@ class PasswordResetConfirmAPIView(generics.GenericAPIView):
     update=extend_schema(
         tags=["User Administration"],
         summary="Replace staff user",
-        description="Replace a clinic staff user record, including status and staff flags.",
+        description="Replace a clinic staff user record, including active status. Admin flags (is_staff/is_superuser) are read-only.",
     ),
     partial_update=extend_schema(
         tags=["User Administration"],
@@ -285,8 +284,7 @@ class UserRoleViewSet(ClinicScopedModelViewSet):
                     "user_data": {
                         "email": "doctor@example.com",
                         "phone": "+254700000000",
-                        "password": "securepassword",
-                        "is_staff": True
+                        "password": "securepassword"
                     },
                     "assign_roles": ["Doctor"]
                 },

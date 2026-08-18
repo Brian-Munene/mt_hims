@@ -39,7 +39,12 @@ def provision_practitioner(*, clinic, user_data, profile_data, assign_roles=None
     Creates a User and PractitionerProfile atomically, and assigns roles.
     """
     password = user_data.pop("password", None)
-    
+
+    # user_data arrives as a raw dict from the API; admin flags may only be
+    # granted by the createsuperuser command.
+    user_data.pop("is_staff", None)
+    user_data.pop("is_superuser", None)
+
     # Ensure clinic is set on user data
     user_data["clinic"] = clinic
     

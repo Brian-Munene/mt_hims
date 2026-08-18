@@ -3,10 +3,12 @@
 import { useMemo, useState, useTransition } from "react";
 import { z } from "zod";
 
+import { ActiveBadge } from "@/components/shared/active-badge";
 import { ErrorList } from "@/components/shared/error-list";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { BrowserApiError, browserRequest, flattenValidationErrors } from "@/lib/api/browser";
 import type { FieldOption } from "@/lib/options";
@@ -23,12 +25,15 @@ export interface CrudField {
   hidden?: boolean;
 }
 
+type CrudPanelMode = "create" | "manage" | "full";
+
 interface CrudPanelProps<T extends { id: string }> {
   title: string;
   description: string;
   endpoint: string;
   fields: CrudField[];
   initialItems: T[];
+  mode?: CrudPanelMode;
 }
 
 function makeSchema(fields: CrudField[]) {
@@ -129,12 +134,14 @@ export function CrudPanel<T extends { id: string }>({
   endpoint,
   fields,
   initialItems,
+  mode = "full",
 }: CrudPanelProps<T>) {
   const [items, setItems] = useState<T[]>(initialItems);
   const [errors, setErrors] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const schema = useMemo(() => makeSchema(fields), [fields]);
+  const visibleFields = fields.filter((field) => !field.hidden);
 
   function getDefaultValue(item: Record<string, unknown>, field: CrudField): unknown {
     const value = item[field.name];
@@ -232,26 +239,114 @@ export function CrudPanel<T extends { id: string }>({
       <CardContent className="space-y-6">
         <ErrorList errors={errors} />
 
-        <form
-          className="grid gap-4 md:grid-cols-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            handleCreate(new FormData(event.currentTarget));
-            event.currentTarget.reset();
-          }}
-        >
-          <CrudFields
-            fields={fields}
-            titlePrefix={title}
-            getFieldValue={(field) => field.defaultValue ?? ""}
-          />
-          <div className="md:col-span-2">
-            <Button type="submit" disabled={isPending}>
-              {isPending ? "Saving..." : `Create ${title}`}
-            </Button>
-          </div>
-        </form>
+        {mode !== "manage" && (
+          <form
+            className="grid gap-4 md:grid-cols-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleCreate(new FormData(event.currentTarget));
+              event.currentTarget.reset();
+            }}
+          >
+            <CrudFields
+              fields={fields}
+              titlePrefix={title}
+              getFieldValue={(field) => field.defaultValue ?? ""}
+            />
+            <div className="md:col-span-2">
+              <Button type="submit" disabled={isPending}>
+                {isPending ? "Saving..." : `Create ${title}`}
+              </Button>
+            </div>
+          </form>
+        )}
 
+        {mode === "manage" && (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                {visibleFields.map((field) => (
+                  <TableHead key={field.name}>{field.label}</TableHead>
+                ))}
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={visibleFields.length + 1} className="py-8 text-center text-sm text-slate-400">
+                    No records found.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                items.map((item) => {
+                  const record = item as Record<string, unknown>;
+                  const isEditing = editingId === item.id;
+                  return (
+                    <TableRow key={item.id}>
+                      {isEditing ? (
+                        <TableCell colSpan={visibleFields.length + 1} className="whitespace-normal">
+                          <form
+                            className="grid gap-4 py-2 md:grid-cols-2"
+                            onSubmit={(event) => {
+                              event.preventDefault();
+                              handleUpdate(item.id, new FormData(event.currentTarget));
+                            }}
+                          >
+                            <CrudFields
+                              fields={fields}
+                              getFieldValue={(field) => getDefaultValue(record, field)}
+                            />
+                            <div className="flex gap-2 md:col-span-2">
+                              <Button type="submit" disabled={isPending}>
+                                {isPending ? "Saving..." : "Save changes"}
+                              </Button>
+                              <Button type="button" variant="outline" onClick={() => setEditingId(null)}>
+                                Cancel
+                              </Button>
+                            </div>
+                          </form>
+                        </TableCell>
+                      ) : (
+                        <>
+                          {visibleFields.map((field, index) => (
+                            <TableCell
+                              key={field.name}
+                              className={index === 0 ? "font-medium text-slate-900" : "text-sm text-slate-600"}
+                            >
+                              {field.type === "checkbox" ? (
+                                <ActiveBadge
+                                  active={Boolean(record[field.name])}
+                                  {...(field.name === "is_active"
+                                    ? {}
+                                    : { activeLabel: "Yes", inactiveLabel: "No" })}
+                                />
+                              ) : (
+                                String(record[field.name] ?? "-")
+                              )}
+                            </TableCell>
+                          ))}
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-2">
+                              <Button type="button" size="sm" variant="outline" onClick={() => setEditingId(item.id)}>
+                                Edit
+                              </Button>
+                              <Button type="button" size="sm" variant="destructive" onClick={() => handleDelete(item.id)}>
+                                Delete
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </>
+                      )}
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        )}
+
+        {mode === "full" && (
         <div className="space-y-4">
           {items.map((item) => {
             const isEditing = editingId === item.id;
@@ -306,6 +401,7 @@ export function CrudPanel<T extends { id: string }>({
           })}
           {!items.length && <p className="text-sm text-slate-500">No records found.</p>}
         </div>
+        )}
       </CardContent>
     </Card>
   );

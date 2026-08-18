@@ -4,7 +4,6 @@ import { Activity, CreditCard, FlaskConical, Pill, Users } from "lucide-react";
 import { ModuleCard } from "@/components/dashboard/module-card";
 import { QueueColumn } from "@/components/booking/queue-column";
 import { StatCard } from "@/components/dashboard/stat-card";
-import { PageHeader } from "@/components/shared/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { ApiListResponse } from "@/lib/types";
 import { listInvoices } from "@/lib/api/billing";
@@ -16,7 +15,6 @@ import { listPrescriptions } from "@/lib/api/pharmacy";
 import { moduleCards } from "@/lib/navigation";
 import { requireUser } from "@/lib/auth";
 import { hasAnyRole } from "@/lib/rbac";
-import { cn } from "@/lib/utils";
 
 const QUEUE_TYPES = ["reception", "triage", "consultation", "laboratory", "pharmacy", "billing"] as const;
 
@@ -32,7 +30,6 @@ export default async function DashboardPage() {
   const canViewBilling = hasAnyRole(user, ["Admin", "Pharmacist", "Receptionist"]);
   const canViewPharmacy = hasAnyRole(user, ["Admin", "Doctor", "Pharmacist"]);
   const canViewLaboratory = hasAnyRole(user, ["Admin", "Doctor", "Lab Technician"]);
-  const isAdmin = hasAnyRole(user, ["Admin"]) || user.is_superuser;
 
   const [patients, encounters, invoices, prescriptions, labOrders, queueBoard] = await Promise.all([
     listPatients(),
@@ -79,19 +76,13 @@ export default async function DashboardPage() {
         </CardContent>
       </Card>
 
-      <PageHeader
-        eyebrow="Overview"
-        title="Clinic dashboard"
-        description="A server-rendered operational view across patients, encounters, billing, prescriptions, and laboratory work."
-      />
-
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         {statCards.map((card) => (
           <StatCard key={card.key} label={card.label} value={`${card.value}`} hint={card.hint} icon={card.icon} />
         ))}
       </div>
 
-      <div className={cn("grid gap-4", isAdmin && "xl:grid-cols-[1.4fr_0.9fr]")}>
+      <div className="grid gap-4">
         <Card className="border-slate-200/70">
           <CardHeader>
             <CardTitle>Module launchpad</CardTitle>
@@ -112,23 +103,6 @@ export default async function DashboardPage() {
               ))}
           </CardContent>
         </Card>
-
-        {isAdmin && (
-          <Card className="border-slate-200/70 bg-slate-950 text-white">
-            <CardHeader>
-              <CardTitle className="text-white">Architecture notes</CardTitle>
-              <CardDescription className="text-slate-300">
-                The frontend is structured to keep sensitive healthcare flows on the server side.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4 text-sm leading-6 text-slate-200">
-              <p>App Router pages render lists on the server to avoid client-side fetch waterfalls.</p>
-              <p>JWTs are exchanged through route handlers and persisted in httpOnly cookies.</p>
-              <p>RBAC helpers mirror the backend roles so restricted modules redirect before rendering.</p>
-              <p>An AES-256-GCM helper is ready for encrypted API envelopes when the backend enables them.</p>
-            </CardContent>
-          </Card>
-        )}
       </div>
     </div>
   );

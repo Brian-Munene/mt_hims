@@ -24,6 +24,37 @@ class UserSerializerTests(ClinicAPIFixtureMixin, TestCase):
         self.assertNotEqual(user.password, "secret123")
         self.assertTrue(user.check_password("secret123"))
 
+    def test_create_ignores_admin_flags(self):
+        serializer = UserSerializer(
+            data={
+                "clinic": self.clinic.id,
+                "email": "wannabe-admin@example.com",
+                "phone": "+254700123124",
+                "password": "secret123",
+                "is_staff": True,
+                "is_superuser": True,
+            }
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        user = serializer.save()
+
+        self.assertFalse(user.is_staff)
+        self.assertFalse(user.is_superuser)
+
+    def test_update_ignores_admin_flags(self):
+        serializer = UserSerializer(
+            instance=self.doctor,
+            data={"is_staff": True, "is_superuser": True},
+            partial=True,
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        user = serializer.save()
+
+        self.assertFalse(user.is_staff)
+        self.assertFalse(user.is_superuser)
+
     def test_update_hashes_new_password(self):
         serializer = UserSerializer(
             instance=self.doctor,

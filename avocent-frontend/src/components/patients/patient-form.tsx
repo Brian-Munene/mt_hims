@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { z } from "zod";
 
 import { ErrorList } from "@/components/shared/error-list";
@@ -11,10 +11,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { BrowserApiError, browserRequest, extractApiErrors } from "@/lib/api/browser";
 import { parseJsonMetadata } from "@/lib/utils";
-import type { ApiListResponse, Clinic, Patient } from "@/lib/types";
+import type { Patient } from "@/lib/types";
 
 const patientSchema = z.object({
-  clinic: z.string().optional(),
   first_name: z.string().trim().min(1, "First name is required."),
   last_name: z.string().trim().min(1, "Last name is required."),
   date_of_birth: z.string().optional(),
@@ -53,21 +52,6 @@ export function PatientForm({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [errors, setErrors] = useState<string[]>([]);
-  const [clinics, setClinics] = useState<{ id: string; name: string }[]>([]);
-  const [clinicLoading, setClinicLoading] = useState(true);
-
-  useEffect(() => {
-    browserRequest<ApiListResponse<Clinic>>("/api/proxy/api/organization/clinics/")
-      .then((response) => {
-        setClinics(response.results.map((c) => ({ id: c.id, name: c.name })));
-      })
-      .catch(() => {
-        setClinics([]);
-      })
-      .finally(() => {
-        setClinicLoading(false);
-      });
-  }, []);
 
   const title = useMemo(
     () => (mode === "create" ? "Register patient" : "Update patient"),
@@ -80,7 +64,6 @@ export function PatientForm({
     startTransition(async () => {
       try {
         const parsed = patientSchema.parse({
-          clinic: String(formData.get("clinic") ?? "").trim() || undefined,
           first_name: String(formData.get("first_name") ?? ""),
           last_name: String(formData.get("last_name") ?? ""),
           date_of_birth: String(formData.get("date_of_birth") ?? "").trim() || undefined,
@@ -95,8 +78,9 @@ export function PatientForm({
           metadataText: String(formData.get("metadata") ?? "").trim(),
         });
 
+        // clinic is intentionally omitted: the backend fills in the
+        // registering user's clinic on create.
         const payload = {
-          ...(parsed.clinic ? { clinic: parsed.clinic } : {}),
           first_name: parsed.first_name,
           last_name: parsed.last_name,
           ...(normalizeDateOfBirth(parsed.date_of_birth) ? { date_of_birth: parsed.date_of_birth } : {}),
@@ -256,28 +240,6 @@ export function PatientForm({
                 name="emergency_contact_phone"
                 defaultValue={patient?.emergency_contact_phone ?? ""}
               />
-            </div>
-            <div className="space-y-2 md:col-span-2">
-              <label className="text-sm font-medium text-slate-800" htmlFor={`${mode}-clinic`}>
-                Clinic
-              </label>
-              {clinicLoading ? (
-                <Input id={`${mode}-clinic`} name="clinic" disabled placeholder="Loading clinics..." />
-              ) : (
-                <select
-                  id={`${mode}-clinic`}
-                  name="clinic"
-                  defaultValue={patient?.clinic ?? ""}
-                  className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm"
-                >
-                  <option value="">Select a clinic</option>
-                  {clinics.map((clinic) => (
-                    <option key={clinic.id} value={clinic.id}>
-                      {clinic.name}
-                    </option>
-                  ))}
-                </select>
-              )}
             </div>
             <div className="space-y-2 md:col-span-2">
               <label className="text-sm font-medium text-slate-800" htmlFor={`${mode}-metadata`}>

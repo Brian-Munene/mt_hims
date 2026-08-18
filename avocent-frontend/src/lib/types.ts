@@ -78,14 +78,6 @@ export interface PractitionerProfile {
   updated_at?: string;
 }
 
-export interface EmailLog extends BaseResource {
-  recipient_email: string;
-  subject: string;
-  event_type: string;
-  status: "sent" | "failed";
-  error: string;
-}
-
 export interface BillingReport {
   total_invoices: number;
   total_revenue: string;

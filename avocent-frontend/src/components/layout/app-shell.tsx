@@ -62,8 +62,7 @@ export function AppShell({
                 </SheetContent>
               </Sheet>
               <div>
-                <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Protected dashboard</p>
-                <h1 className="font-heading text-xl font-semibold text-slate-950 md:text-2xl">Operational overview</h1>
+                <h1 className="font-heading text-xl font-semibold text-slate-950 md:text-2xl">Clinic Dashboard</h1>
               </div>
             </div>
 

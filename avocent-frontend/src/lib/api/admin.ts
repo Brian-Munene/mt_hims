@@ -1,6 +1,6 @@
 import { browserRequest } from "@/lib/api/browser";
 import { djangoRequest } from "@/lib/api/http";
-import type { ApiListResponse, BillingReport, Clinic, Department, EmailLog, PractitionerProfile, RoleRecord, SessionUser } from "@/lib/types";
+import type { ApiListResponse, BillingReport, Clinic, Department, PractitionerProfile, RoleRecord, SessionUser } from "@/lib/types";
 
 export async function listUsers() {
   return djangoRequest<ApiListResponse<SessionUser>>("/api/auth/users/", {
@@ -79,12 +79,6 @@ export async function deleteClinic(id: string) {
 export async function listDepartments() {
   return djangoRequest<ApiListResponse<Department>>("/api/auth/departments/", {
     query: { ordering: "name" },
-  });
-}
-
-export async function listEmailLogs() {
-  return djangoRequest<ApiListResponse<EmailLog>>("/api/notifications/email-logs/", {
-    query: { ordering: "-created_at" },
   });
 }
 

@@ -261,7 +261,11 @@ EMAIL_USE_TLS = _get_bool_env("EMAIL_USE_TLS", default=True)
 EMAIL_HOST_USER = _get_env("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = _get_env("EMAIL_HOST_PASSWORD", "")
 DEFAULT_FROM_EMAIL = _get_env("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER or "noreply@avocent.health")
-EMAIL_CONFIGURED = bool(EMAIL_HOST_USER and EMAIL_HOST_PASSWORD)
+# Auth-less SMTP servers (e.g. a local Mailpit) need the explicit override,
+# since the credential-based default would read as "not configured".
+EMAIL_CONFIGURED = _get_bool_env(
+    "EMAIL_CONFIGURED", default=bool(EMAIL_HOST_USER and EMAIL_HOST_PASSWORD)
+)
 
 # Base URL of the frontend app, used to build links embedded in outgoing emails
 # (e.g. the password reset link).

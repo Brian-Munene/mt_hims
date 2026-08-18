@@ -53,7 +53,9 @@ class UserSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         )
-        read_only_fields = ("id", "created_at", "updated_at", "role_names")
+        # is_staff/is_superuser gate Django admin access; they are only ever
+        # set by the createsuperuser command, never through the API.
+        read_only_fields = ("id", "is_staff", "is_superuser", "created_at", "updated_at", "role_names")
 
     @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_role_names(self, obj):

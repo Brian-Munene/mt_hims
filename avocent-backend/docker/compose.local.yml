@@ -18,17 +18,25 @@ services:
     volumes:
       - postgres_local_data:/var/lib/postgresql/data
 
+  # EMAIL_HOST is overridden because .env.local points at Mailpit on the
+  # docker host, which containers reach via host.docker.internal.
   web:
     env_file:
       - ../.env.local
+    environment:
+      EMAIL_HOST: host.docker.internal
 
   worker:
     env_file:
       - ../.env.local
+    environment:
+      EMAIL_HOST: host.docker.internal
 
   beat:
     env_file:
       - ../.env.local
+    environment:
+      EMAIL_HOST: host.docker.internal
 
 volumes:
   postgres_local_data:

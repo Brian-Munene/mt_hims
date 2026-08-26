@@ -46,6 +46,11 @@ def get_databases() -> dict:
     engine = _get_env("DB_ENGINE", "django.db.backends.postgresql")
 
     if engine in ("django.db.backends.postgresql", "django.db.backends.postgresql_psycopg2"):
+        # Unset by default: psycopg3's own default (sslmode=prefer) is left alone for local
+        # dev. Managed Postgres (e.g. Azure Database for PostgreSQL) requires TLS, so
+        # staging/prod set this to "require" rather than relying on opportunistic negotiation.
+        sslmode = _get_env("DB_SSLMODE", "")
+        options = {"sslmode": sslmode} if sslmode else {}
         return {
             "default": {
                 "ENGINE": engine,
@@ -54,6 +59,7 @@ def get_databases() -> dict:
                 "PASSWORD": _get_env("DB_PASSWORD", ""),
                 "HOST": _get_env("DB_HOST", "localhost"),
                 "PORT": _get_env("DB_PORT", "5432"),
+                "OPTIONS": options,
             }
         }
 

@@ -19,6 +19,14 @@ django:
   # or PHI fields fail to decrypt with cryptography InvalidTag errors.
   fieldEncryptionKey: "+47XBmq/0JfsjKIKW5o9TT1y88LVduxdXHoPRTzMEvE="
   frontendUrl: http://localhost:3000
+  # Plain http via port-forward, no ingress/TLS in front — the base chart's
+  # secure-by-default settings would break logins (Secure cookies dropped,
+  # SSL redirect loops) over http.
+  security:
+    sslRedirect: false
+    sessionCookieSecure: false
+    csrfCookieSecure: false
+    hstsSeconds: 0
 
 postgres:
   internal: true

@@ -12,6 +12,7 @@ data:
   DB_USER: {{ .Values.postgres.user | quote }}
   DB_HOST: {{ include "avocent.postgresHost" . | quote }}
   DB_PORT: {{ .Values.postgres.port | quote }}
+  DB_SSLMODE: {{ .Values.postgres.sslMode | quote }}
   REDIS_URL: {{ include "avocent.redisUrl" . | quote }}
   CELERY_BROKER_URL: {{ include "avocent.redisUrl" . | quote }}
   CELERY_RESULT_BACKEND: {{ include "avocent.redisUrl" . | quote }}
@@ -34,3 +35,8 @@ data:
   GUNICORN_KEEPALIVE: {{ .Values.web.gunicorn.keepalive | quote }}
   GUNICORN_MAX_REQUESTS: {{ .Values.web.gunicorn.maxRequests | quote }}
   GUNICORN_MAX_REQUESTS_JITTER: {{ .Values.web.gunicorn.maxRequestsJitter | quote }}
+  SECURE_SSL_REDIRECT: {{ .Values.django.security.sslRedirect | quote }}
+  SESSION_COOKIE_SECURE: {{ .Values.django.security.sessionCookieSecure | quote }}
+  CSRF_COOKIE_SECURE: {{ .Values.django.security.csrfCookieSecure | quote }}
+  SECURE_HSTS_SECONDS: {{ .Values.django.security.hstsSeconds | quote }}
+  CSRF_TRUSTED_ORIGINS: {{ .Values.django.security.csrfTrustedOrigins | join "," | quote }}

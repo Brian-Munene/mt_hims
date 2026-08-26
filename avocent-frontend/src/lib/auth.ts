@@ -2,32 +2,26 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { env } from "@/lib/env";
+import { ACCESS_TOKEN_MAX_AGE, AUTH_COOKIE_OPTIONS, REFRESH_TOKEN_MAX_AGE } from "@/lib/cookies";
 import { getCurrentUser } from "@/lib/api/auth";
 import type { AuthEnvelope, SessionUser } from "@/lib/types";
-
-const cookieOptions = {
-  httpOnly: true,
-  sameSite: "lax" as const,
-  secure: process.env.NODE_ENV === "production",
-  path: "/",
-};
 
 export async function persistAuthSession(auth: AuthEnvelope) {
   const cookieStore = await cookies();
 
   cookieStore.set(env.accessCookieName, auth.access, {
-    ...cookieOptions,
-    maxAge: 60 * 15,
+    ...AUTH_COOKIE_OPTIONS,
+    maxAge: ACCESS_TOKEN_MAX_AGE,
   });
 
   cookieStore.set(env.refreshCookieName, auth.refresh, {
-    ...cookieOptions,
-    maxAge: 60 * 60 * 24 * 7,
+    ...AUTH_COOKIE_OPTIONS,
+    maxAge: REFRESH_TOKEN_MAX_AGE,
   });
 
   cookieStore.set(env.sessionCookieName, JSON.stringify(auth.user), {
-    ...cookieOptions,
-    maxAge: 60 * 60 * 24 * 7,
+    ...AUTH_COOKIE_OPTIONS,
+    maxAge: REFRESH_TOKEN_MAX_AGE,
   });
 }
 

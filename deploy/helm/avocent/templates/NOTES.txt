@@ -1,0 +1,30 @@
+Avocent Health Centre — release {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
+
+Components: web (Django API), frontend (Next.js), worker + beat (Celery){{ if .Values.postgres.internal }}, in-cluster PostgreSQL{{ end }}{{ if .Values.redis.internal }}, in-cluster Redis{{ end }}.
+
+Watch the rollout:
+
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }} -w
+
+{{- if not .Values.ingress.enabled }}
+
+No ingress is enabled. Reach the stack with port-forwards:
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "avocent.webService" . }} 8000:8000
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "avocent.fullname" . }}-frontend 3000:3000
+
+Then open http://localhost:3000 (frontend) and http://localhost:8000/api/docs/ (API).
+{{- else }}
+
+Ingress hosts:
+{{- if .Values.ingress.apiHost }}
+  API:      https://{{ .Values.ingress.apiHost }}
+{{- end }}
+{{- if .Values.ingress.appHost }}
+  Frontend: https://{{ .Values.ingress.appHost }}
+{{- end }}
+{{- end }}
+
+First-time setup (creates the Django admin account):
+
+  kubectl exec -n {{ .Release.Namespace }} -it deploy/{{ include "avocent.fullname" . }}-web -- python manage.py createsuperuser

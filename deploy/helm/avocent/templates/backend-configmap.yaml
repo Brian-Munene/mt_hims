@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "avocent.fullname" . }}-backend
+  labels:
+    {{- include "avocent.labels" . | nindent 4 }}
+data:
+  DEBUG: {{ .Values.django.debug | quote }}
+  ALLOWED_HOSTS: {{ include "avocent.allowedHosts" . | quote }}
+  DB_ENGINE: django.db.backends.postgresql
+  DB_NAME: {{ .Values.postgres.database | quote }}
+  DB_USER: {{ .Values.postgres.user | quote }}
+  DB_HOST: {{ include "avocent.postgresHost" . | quote }}
+  DB_PORT: {{ .Values.postgres.port | quote }}
+  REDIS_URL: {{ include "avocent.redisUrl" . | quote }}
+  CELERY_BROKER_URL: {{ include "avocent.redisUrl" . | quote }}
+  CELERY_RESULT_BACKEND: {{ include "avocent.redisUrl" . | quote }}
+  CELERY_LOG_LEVEL: {{ .Values.celery.logLevel | quote }}
+  CELERY_WORKER_CONCURRENCY: {{ .Values.worker.concurrency | quote }}
+  CELERY_BEAT_PIDFILE: /tmp/celerybeat.pid
+  EMAIL_HOST: {{ .Values.email.host | quote }}
+  EMAIL_PORT: {{ .Values.email.port | quote }}
+  EMAIL_USE_TLS: {{ .Values.email.useTls | quote }}
+  EMAIL_HOST_USER: {{ .Values.email.user | quote }}
+  EMAIL_CONFIGURED: {{ .Values.email.configured | quote }}
+  DEFAULT_FROM_EMAIL: {{ .Values.email.defaultFrom | quote }}
+  FRONTEND_URL: {{ .Values.django.frontendUrl | quote }}
+  PASSWORD_RESET_TIMEOUT: {{ .Values.django.passwordResetTimeout | quote }}
+  API_ENCRYPTION_ENABLED: {{ .Values.django.apiEncryption.enabled | quote }}
+  API_ENCRYPTION_ENFORCE: {{ .Values.django.apiEncryption.enforce | quote }}
+  GUNICORN_WORKERS: {{ .Values.web.gunicorn.workers | quote }}
+  GUNICORN_THREADS: {{ .Values.web.gunicorn.threads | quote }}
+  GUNICORN_TIMEOUT: {{ .Values.web.gunicorn.timeout | quote }}
+  GUNICORN_KEEPALIVE: {{ .Values.web.gunicorn.keepalive | quote }}
+  GUNICORN_MAX_REQUESTS: {{ .Values.web.gunicorn.maxRequests | quote }}
+  GUNICORN_MAX_REQUESTS_JITTER: {{ .Values.web.gunicorn.maxRequestsJitter | quote }}

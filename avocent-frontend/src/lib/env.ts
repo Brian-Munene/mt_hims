@@ -9,5 +9,11 @@ export const env = {
   sessionCookieName: required(process.env.SESSION_COOKIE, "avocent_session"),
   apiEncryptionEnabled: process.env.API_ENCRYPTION_ENABLED === "true",
   apiEncryptionKey: process.env.API_ENCRYPTION_KEY ?? "",
+  // Secure cookies require https; COOKIE_SECURE=false lets a production build
+  // served over plain http (e.g. a local cluster) keep working sessions.
+  secureCookies:
+    process.env.COOKIE_SECURE !== undefined
+      ? process.env.COOKIE_SECURE === "true"
+      : process.env.NODE_ENV === "production",
 };
 

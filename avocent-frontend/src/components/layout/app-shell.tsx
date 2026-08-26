@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Menu } from "lucide-react";
 
 import { NotificationBell } from "@/components/layout/notification-bell";
@@ -16,6 +17,8 @@ export function AppShell({
   user: SessionUser;
   children: React.ReactNode;
 }) {
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
   return (
     <div className="relative min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(45,212,191,0.18),_transparent_32%),radial-gradient(circle_at_top_right,_rgba(148,163,184,0.18),_transparent_24%),linear-gradient(180deg,_#f7fbfb_0%,_#f8fafc_100%)]">
       <div className="mx-auto grid min-h-screen max-w-[1600px] grid-cols-1 gap-6 p-4 md:p-6 xl:grid-cols-[280px_minmax(0,1fr)]">
@@ -42,7 +45,7 @@ export function AppShell({
         <div className="flex min-h-screen flex-col gap-4">
           <header className="sticky top-4 z-20 flex items-center justify-between rounded-[1.75rem] border border-white/70 bg-white/75 px-4 py-3 shadow-[0_18px_60px_-30px_rgba(15,23,42,0.35)] backdrop-blur">
             <div className="flex items-center gap-3">
-              <Sheet>
+              <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
                 <SheetTrigger
                   className="inline-flex xl:hidden"
                   render={
@@ -57,7 +60,7 @@ export function AppShell({
                       <p className="text-xs font-semibold uppercase tracking-[0.28em] text-teal-700">Clinic OS</p>
                       <h2 className="mt-2 font-heading text-2xl font-semibold text-slate-950">Avocent Health Centre</h2>
                     </div>
-                    <SidebarNav user={user} compact />
+                    <SidebarNav user={user} compact onNavigate={() => setMobileNavOpen(false)} />
                   </div>
                 </SheetContent>
               </Sheet>

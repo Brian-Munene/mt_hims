@@ -7,7 +7,15 @@ import { navigationItems } from "@/lib/navigation";
 import type { SessionUser } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-export function SidebarNav({ user, compact = false }: { user: SessionUser; compact?: boolean }) {
+export function SidebarNav({
+  user,
+  compact = false,
+  onNavigate,
+}: {
+  user: SessionUser;
+  compact?: boolean;
+  onNavigate?: () => void;
+}) {
   const pathname = usePathname();
 
   const items = navigationItems.filter((item) => user.role_names.some((role) => item.allowedRoles.includes(role)));
@@ -24,6 +32,7 @@ export function SidebarNav({ user, compact = false }: { user: SessionUser; compa
           <Link
             key={item.href}
             href={item.href}
+            onClick={onNavigate}
             className={cn(
               "flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium transition-colors",
               active

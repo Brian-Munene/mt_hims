@@ -1,0 +1,6 @@
+apiVersion: v2
+name: avocent
+description: Avocent Health Centre HIMS — Django API, Next.js frontend, Celery worker/beat, with optional in-cluster PostgreSQL and Redis.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

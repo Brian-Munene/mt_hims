@@ -1,0 +1,38 @@
+# Local smoke-test values for the Docker Desktop / kind cluster.
+# Dev-only credentials — never use these beyond a local cluster.
+#   helm install avocent-local ./deploy/helm/avocent -n avocent -f deploy/helm/values-local.yaml
+
+image:
+  backend:
+    repository: avocent-backend
+    tag: helm
+    pullPolicy: Never
+  frontend:
+    repository: avocent-frontend
+    tag: helm
+    pullPolicy: Never
+
+django:
+  debug: false
+  secretKey: local-helm-smoke-test-secret-key-not-for-real-use
+  # Must match the key that encrypted the local dev data (backend .env.local),
+  # or PHI fields fail to decrypt with cryptography InvalidTag errors.
+  fieldEncryptionKey: "+47XBmq/0JfsjKIKW5o9TT1y88LVduxdXHoPRTzMEvE="
+  frontendUrl: http://localhost:3000
+
+postgres:
+  internal: true
+  password: avocent_dev_password
+  storage: 1Gi
+
+redis:
+  internal: true
+
+email:
+  configured: false
+
+frontend:
+  # Browser reaches the API through the port-forward on localhost:8000.
+  publicApiUrl: http://localhost:8000
+  # Plain http via port-forward — Secure cookies would be dropped.
+  secureCookies: false

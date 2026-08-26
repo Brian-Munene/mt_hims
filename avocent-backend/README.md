@@ -19,6 +19,17 @@ python manage.py runserver
 
 The API is served at `http://localhost:8000`, with interactive docs at `/api/docs/swagger/`. Full variable list/defaults: [.env.local.example](.env.local.example).
 
+## Tests & coverage
+
+```bash
+pip install -r requirements-dev.txt   # adds coverage on top of requirements.txt
+coverage run manage.py test
+coverage report                       # per-file table in the terminal
+coverage html && open htmlcov/index.html   # browsable line-by-line report
+```
+
+`.coveragerc` excludes migrations, `tests/` modules, and management/deploy scaffolding (`manage.py`, `asgi.py`, `wsgi.py`, `celery.py`), so the percentage reflects application code, not boilerplate. As of the last run: **151 tests, 81.5% overall coverage**. The weakest spots are `compliance/tasks.py` and `core/management/commands/encrypt_phi_data.py` (both 0% — no test exercises them), and `patients/views.py`/`billing/views.py` in the 50-60% range.
+
 ## Docker
 
 Assets live under [`docker/`](docker/). Each environment has its own env file and compose override:
@@ -34,6 +45,21 @@ Assets live under [`docker/`](docker/). Each environment has its own env file an
 - `entrypoint-web.sh` runs migrations + `collectstatic` (served by whitenoise) before starting gunicorn, so the Django admin and Swagger/ReDoc UI have working static assets with `DEBUG=false`.
 - Add `--watch` instead of `--build` for local file-sync dev mode.
 - `ALLOWED_HOSTS` must include the internal service name `web` (not just public domains) — the frontend container reaches Django as `http://web:8000`, and Django rejects the request otherwise.
+
+## Kubernetes (Helm)
+
+A Helm chart for the full stack (web, frontend, worker, beat, optional in-cluster Postgres/Redis, optional ingress) lives at [`../deploy/helm/avocent`](../deploy/helm/avocent). One release = one clinic stack; per-environment/per-clinic knobs go in a values file (see [`../deploy/helm/values-local.yaml`](../deploy/helm/values-local.yaml) for a local smoke-test example — dev credentials only).
+
+```bash
+# Build images, load them into the local (kind-based) Docker Desktop cluster, install:
+docker build -f avocent-backend/docker/Dockerfile -t avocent-backend:helm avocent-backend
+docker build -t avocent-frontend:helm avocent-frontend
+docker save avocent-backend:helm | docker exec -i desktop-control-plane ctr --namespace k8s.io images import -
+docker save avocent-frontend:helm | docker exec -i desktop-control-plane ctr --namespace k8s.io images import -
+helm install avocent-local deploy/helm/avocent -n avocent --create-namespace -f deploy/helm/values-local.yaml
+```
+
+The release's NOTES print port-forward commands and the `createsuperuser` bootstrap step. `beat` is pinned to 1 replica (Recreate strategy) so scheduled tasks never double-fire. For real deployments, prefer an external/managed Postgres (`postgres.internal: false` + `postgres.host`) and enable `ingress` with cert-manager.
 
 ## Stack & Structure
 

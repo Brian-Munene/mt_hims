@@ -1,0 +1,115 @@
+# Default values for the Avocent Health Centre chart.
+# One release == one clinic stack. Install per clinic with its own values file:
+#   helm install clinic-a ./deploy/helm/avocent -n clinic-a -f clinic-a-values.yaml
+
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  backend:
+    repository: avocent-backend
+    tag: latest
+    pullPolicy: IfNotPresent
+  frontend:
+    repository: avocent-frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+
+web:
+  replicas: 1
+  resources: {}
+  gunicorn:
+    workers: 3
+    threads: 2
+    timeout: 120
+    keepalive: 5
+    maxRequests: 1000
+    maxRequestsJitter: 100
+
+worker:
+  replicas: 1
+  concurrency: 4
+  resources: {}
+
+# beat is always exactly 1 replica (duplicate beats fire duplicate reminders);
+# the template hard-codes replicas and uses the Recreate strategy.
+beat:
+  resources: {}
+
+frontend:
+  replicas: 1
+  resources: {}
+  appName: Avocent Health Centre
+  # Set false when serving the production build over plain http (no TLS),
+  # e.g. a local cluster reached via port-forward — browsers (Safari
+  # especially) drop Secure cookies on http and logins won't stick.
+  secureCookies: true
+  # Public browser-facing URL of the Django API. Defaults to the in-cluster
+  # service when unset, which only works for server-side calls — set this to
+  # the API's public URL (e.g. https://api.clinic-a.example.com) when exposing
+  # the app through an ingress.
+  publicApiUrl: ""
+
+django:
+  debug: false
+  # Extra ALLOWED_HOSTS entries. The chart always appends localhost, 127.0.0.1,
+  # and the internal web service name (the frontend reaches Django through it).
+  allowedHosts: []
+  # Browser-facing URL of the frontend, used in password-reset emails.
+  frontendUrl: http://localhost:3000
+  passwordResetTimeout: 86400
+  # REQUIRED: generate with `python manage.py generate_keys` or similar.
+  secretKey: ""
+  # REQUIRED: must decode to exactly 32 bytes. Without it, every web/worker/
+  # beat pod crash-loops on core.E001 (PHI encryption has no insecure
+  # fallback) — this is caught at install time instead.
+  fieldEncryptionKey: ""
+  apiEncryption:
+    enabled: false
+    enforce: false
+    key: ""
+
+email:
+  host: ""
+  port: 587
+  useTls: true
+  user: ""
+  password: ""
+  # Set true to enable sending with credential-less SMTP (e.g. Mailpit).
+  configured: false
+  defaultFrom: noreply@avocent.health
+
+celery:
+  logLevel: info
+
+postgres:
+  # true: run a single-replica PostgreSQL StatefulSet inside the release.
+  # false: point at an external/managed database via host/port below.
+  internal: true
+  image: postgres:15-alpine
+  database: avocent_healthcare
+  user: avocent
+  # REQUIRED when internal (bootstraps the DB) and usually when external too.
+  password: ""
+  storage: 1Gi
+  storageClassName: ""
+  host: ""
+  port: 5432
+  resources: {}
+
+redis:
+  # true: run a single-replica Redis Deployment inside the release.
+  # false: use an external Redis via url below.
+  internal: true
+  image: redis:7-alpine
+  url: ""
+  resources: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  # e.g. api.clinic-a.example.com -> Django, app.clinic-a.example.com -> Next.js
+  apiHost: ""
+  appHost: ""
+  tls: []

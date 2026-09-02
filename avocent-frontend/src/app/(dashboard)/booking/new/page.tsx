@@ -3,7 +3,7 @@ import Link from "next/link";
 
 import { CreateBookingForm } from "@/components/booking/create-booking-form";
 import { PageHeader } from "@/components/shared/page-header";
-import { listClinics, listPractitioners, listUsers } from "@/lib/api/admin";
+import { listPractitioners, listUsers } from "@/lib/api/admin";
 import { requireUser } from "@/lib/auth";
 import { listAppointments } from "@/lib/api/encounters";
 import { listPatients } from "@/lib/api/patients";
@@ -16,12 +16,11 @@ export default async function NewBookingPage() {
   assertModuleAccess(user, "booking");
 
   const isAdmin = hasAnyRole(user, ["Admin"]);
-  const [patients, appointments, practitioners, users, clinics] = await Promise.all([
+  const [patients, appointments, practitioners, users] = await Promise.all([
     listPatients({ ordering: "first_name" }),
     listAppointments({ status: "scheduled", ordering: "scheduled_time" }),
     listPractitioners(),
     isAdmin ? listUsers() : Promise.resolve({ results: [], count: 0, next: null, previous: null }),
-    isAdmin ? listClinics() : Promise.resolve({ results: [], count: 0, next: null, previous: null }),
   ]);
 
   const patientLabelById = new Map(
@@ -37,10 +36,6 @@ export default async function NewBookingPage() {
       practitionerLabelById.get(appointment.practitioner) ?? `Practitioner ${appointment.practitioner.slice(0, 8)}`,
       formatDateTime(appointment.scheduled_time),
     ].join(" • "),
-  }));
-  const clinicOptions = clinics.results.map((clinic) => ({
-    value: clinic.id,
-    label: `${clinic.name} (${clinic.code})`,
   }));
 
   return (
@@ -66,7 +61,6 @@ export default async function NewBookingPage() {
           patients={patients.results}
           appointments={appointmentOptions}
           practitioners={practitionerOptions}
-          clinics={clinicOptions}
         />
       </div>
     </div>

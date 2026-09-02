@@ -1,15 +1,7 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 
 import { ACCESS_COOKIE_NAME, E2E_USER, REFRESH_COOKIE_NAME } from "./fixtures";
-
-async function login(page: Page) {
-  await page.goto("/login");
-  await page.getByLabel("Email").fill(E2E_USER.email);
-  await page.getByLabel("Password").fill(E2E_USER.password);
-  await page.getByRole("button", { name: /sign in/i }).click();
-  await expect(page).toHaveURL("/");
-  await expect(page.getByRole("heading", { name: "Clinic Dashboard" })).toBeVisible();
-}
+import { login } from "./helpers";
 
 test.describe("authentication", () => {
   test("logs in and reaches the dashboard", async ({ page }) => {

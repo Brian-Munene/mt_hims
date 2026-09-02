@@ -7,6 +7,50 @@ from core.tests.utils import ClinicAPIFixtureMixin
 
 
 class BookingViewTests(ClinicAPIFixtureMixin, APITestCase):
+    def test_create_booking_without_clinic_uses_request_user_clinic(self):
+        # The frontend's "Clinic override" field is left blank in the normal
+        # case, so `clinic` is never sent. Regression test for a real bug:
+        # clinic was missing from read_only_fields, so DRF rejected every
+        # create with "This field is required." before perform_create ever
+        # got a chance to fill it in.
+        self.client.force_authenticate(self.receptionist)
+        response = self.client.post(
+            "/api/booking/bookings/",
+            {
+                "patient": str(self.patient.id),
+                "booking_type": "walk_in",
+                "encounter_type": "in_person",
+                "reason_for_visit": "General consultation",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        booking = Booking.objects.get(id=response.data["id"])
+        self.assertEqual(booking.clinic_id, self.clinic.id)
+
+    def test_create_booking_ignores_client_supplied_clinic(self):
+        # clinic is read-only: an explicit "Clinic override" value must be
+        # silently overridden by the requester's own clinic, not honored —
+        # otherwise any authenticated user could book a patient into a
+        # clinic they don't belong to.
+        self.client.force_authenticate(self.receptionist)
+        response = self.client.post(
+            "/api/booking/bookings/",
+            {
+                "clinic": str(self.other_clinic.id),
+                "patient": str(self.patient.id),
+                "booking_type": "walk_in",
+                "encounter_type": "in_person",
+                "reason_for_visit": "General consultation",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        booking = Booking.objects.get(id=response.data["id"])
+        self.assertEqual(booking.clinic_id, self.clinic.id)
+
     def test_receptionist_can_create_walk_in_booking(self):
         self.client.force_authenticate(self.receptionist)
         response = self.client.post(

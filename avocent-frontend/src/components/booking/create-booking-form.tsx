@@ -15,7 +15,6 @@ import type { Booking, Patient } from "@/lib/types";
 
 const bookingSchema = z
   .object({
-    clinic: z.string().optional(),
     patient: z.string().min(1, "Patient is required."),
     appointment: z.string().optional(),
     assigned_practitioner: z.string().optional(),
@@ -45,12 +44,10 @@ export function CreateBookingForm({
   patients,
   appointments,
   practitioners,
-  clinics,
 }: {
   patients: Patient[];
   appointments: SelectOption[];
   practitioners: SelectOption[];
-  clinics: SelectOption[];
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -75,7 +72,6 @@ export function CreateBookingForm({
             startTransition(async () => {
               try {
                 const parsed = bookingSchema.parse({
-                  clinic: String(formData.get("clinic") ?? "").trim() || undefined,
                   patient: String(formData.get("patient") ?? ""),
                   appointment: String(formData.get("appointment") ?? "").trim() || undefined,
                   assigned_practitioner: String(formData.get("assigned_practitioner") ?? "").trim() || undefined,
@@ -93,7 +89,6 @@ export function CreateBookingForm({
                 const booking = await browserRequest<Booking>("/api/proxy/api/booking/bookings/", {
                   method: "POST",
                   body: {
-                    ...(parsed.clinic ? { clinic: parsed.clinic } : {}),
                     patient: parsed.patient,
                     ...(parsed.appointment ? { appointment: parsed.appointment } : {}),
                     ...(parsed.assigned_practitioner ? { assigned_practitioner: parsed.assigned_practitioner } : {}),
@@ -224,17 +219,6 @@ export function CreateBookingForm({
             <div className="space-y-2 md:col-span-2">
               <label className="text-sm font-medium text-slate-800">Notes</label>
               <Textarea name="notes" rows={3} />
-            </div>
-            <div className="space-y-2 md:col-span-2">
-              <label className="text-sm font-medium text-slate-800">Clinic override</label>
-              <select name="clinic" defaultValue="" className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm">
-                <option value="">Use current clinic</option>
-                {clinics.map((clinic) => (
-                  <option key={clinic.value} value={clinic.value}>
-                    {clinic.label}
-                  </option>
-                ))}
-              </select>
             </div>
             <div className="space-y-2 md:col-span-2">
               <label className="text-sm font-medium text-slate-800">Metadata JSON</label>

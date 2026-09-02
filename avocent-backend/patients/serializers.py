@@ -15,7 +15,10 @@ class PatientSerializer(serializers.ModelSerializer):
     class Meta:
         model = Patient
         fields = "__all__"
-        read_only_fields = ("id", "created_at", "updated_at", "created_by")
+        # clinic is read-only: perform_create derives it from the requesting
+        # user, so a client can never register a patient into a clinic that
+        # isn't their own.
+        read_only_fields = ("id", "clinic", "created_at", "updated_at", "created_by")
 
 
 class PatientIdentifierSerializer(serializers.ModelSerializer):

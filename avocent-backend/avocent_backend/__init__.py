@@ -1,6 +1,3 @@
-try:
-    from .celery import app as celery_app
-except Exception:  # pragma: no cover - keep Django bootable before celery install
-    celery_app = None
+from .celery import app as celery_app
 
 __all__ = ("celery_app",)

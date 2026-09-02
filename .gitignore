@@ -10,6 +10,7 @@
 **/*.log
 **/media/
 **/staticfiles/
+**/celerybeat-schedule
 
 # Node / Next.js
 **/node_modules/

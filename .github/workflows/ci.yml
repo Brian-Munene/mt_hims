@@ -79,9 +79,14 @@ jobs:
           pip install -r requirements.txt
 
       - name: Generate encryption keys
-        # The project ships a management command that writes FIELD_ENCRYPTION_KEY /
-        # API_ENCRYPTION_KEY into an env file. Generate a throwaway set for CI.
-        run: python manage.py generate_keys --path .env.local || true
+        # The project ships a management command that writes SECRET_KEY /
+        # API_ENCRYPTION_KEY / FIELD_ENCRYPTION_KEY into an env file — it never
+        # touches the process environment, so export them into GITHUB_ENV for
+        # subsequent steps (each step is a separate shell; nothing "sources"
+        # .env.local automatically).
+        run: |
+          python manage.py generate_keys --path .env.local
+          grep -E '^(SECRET_KEY|API_ENCRYPTION_KEY|FIELD_ENCRYPTION_KEY)=' .env.local >> "$GITHUB_ENV"
 
       - name: Django system checks
         run: python manage.py check

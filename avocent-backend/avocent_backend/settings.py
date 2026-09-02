@@ -280,6 +280,11 @@ APPOINTMENT_REMINDER_LEAD_MINUTES = int(
 )
 
 # Logging configuration
+# logs/ is gitignored (only ever created by a previously-run app instance),
+# so a fresh checkout needs it created before the "file" handler below opens
+# logs/app.log, or Django's dictConfig blows up before the app can start.
+(BASE_DIR / "logs").mkdir(parents=True, exist_ok=True)
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,

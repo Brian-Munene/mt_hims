@@ -1,0 +1,30 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "avocent.fullname" . }}-migrate
+  labels:
+    {{- include "avocent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    # Runs once per install/upgrade, before any web/worker/beat pod rolls, so
+    # migrations never race across multiple web replicas (entrypoint-web.sh
+    # also runs `migrate --noinput` on its own boot — safe as a no-op repeat,
+    # kept for the plain-docker-run path outside Helm).
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        {{- include "avocent.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: "{{ .Values.image.backend.repository }}:{{ .Values.image.backend.tag }}"
+          imagePullPolicy: {{ .Values.image.backend.pullPolicy }}
+          command: ["python", "manage.py", "migrate", "--noinput"]
+          {{- include "avocent.backendEnvFrom" . | nindent 10 }}

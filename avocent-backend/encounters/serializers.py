@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.utils import timezone
 
-from core.serializers import resolve_field, validate_clinic_match
+from core.serializers import resolve_effective_clinic, resolve_field, validate_clinic_match
 from encounters.models import Appointment, AvailabilitySlot, Encounter
 
 
@@ -52,7 +52,11 @@ class AppointmentSerializer(serializers.ModelSerializer):
 
 class EncounterSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
-        clinic = resolve_field(self, attrs, "clinic")
+        # resolve_effective_clinic, not resolve_field: the appointment/booking
+        # cross-checks below must use the clinic the record will actually be
+        # saved under, or omitting `clinic` from the payload (the normal
+        # case) would resolve it to None and silently skip both checks.
+        clinic = resolve_effective_clinic(self, attrs)
         patient = resolve_field(self, attrs, "patient")
         practitioner = resolve_field(self, attrs, "practitioner")
         appointment = resolve_field(self, attrs, "appointment")

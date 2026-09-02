@@ -9,19 +9,32 @@ def resolve_field(serializer, attrs, field_name):
 def resolve_effective_clinic(serializer, attrs):
     """Resolve the clinic a create/update will actually be saved under.
 
-    Checks attrs (a writable clinic field) and the existing instance
-    (updates), then falls back to the requesting user's own clinic — the
-    same value ClinicScopedModelViewSet.perform_create() assigns whenever a
-    serializer's clinic field is read-only and therefore never in attrs.
-    Without this fallback, making a serializer's own `clinic` read-only
-    silently disables every cross-clinic consistency check below, since
-    they'd otherwise compare against an always-None value.
+    Must mirror ClinicScopedModelViewSet.perform_create()/perform_update():
+    non-superusers are always forced into their own clinic there, no matter
+    what `clinic` value (if any) is in attrs. If this function trusted a
+    client-supplied attrs["clinic"] instead, a non-superuser could pick a
+    foreign clinic X, pass validate_clinic_match() by pairing it with a
+    real X-owned related object (e.g. another clinic's patient), and still
+    have perform_create silently re-clinic the saved record back to their
+    own clinic Y — leaving a Y-clinic record pointing at an X-clinic
+    patient/practitioner/etc. Resolving to the same forced value here
+    means that combination is rejected outright instead of slipping through
+    validation and landing in an inconsistent state.
+
+    Superusers are the one legitimate cross-clinic bypass (see
+    can_access_object / has_permission), so for them this still honors an
+    explicit attrs["clinic"], falling back to the instance's/request user's
+    clinic only when omitted.
     """
+    request = serializer.context.get("request")
+    user = getattr(request, "user", None)
+    if user is not None and not getattr(user, "is_superuser", False):
+        return getattr(user, "clinic", None)
+
     clinic = resolve_field(serializer, attrs, "clinic")
     if clinic:
         return clinic
-    request = serializer.context.get("request")
-    return getattr(getattr(request, "user", None), "clinic", None)
+    return getattr(user, "clinic", None)
 
 
 def validate_clinic_match(serializer, attrs, related_field, message):

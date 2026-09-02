@@ -3,6 +3,7 @@ djangorestframework==3.17.1
 drf-spectacular==0.29.0
 django-filter==25.2
 djangorestframework_simplejwt==5.5.1
+pyotp==2.9.0
 cryptography==46.0.7
 psycopg[binary]==3.3.3
 celery==5.6.3

@@ -2,69 +2,56 @@
 description: Check whether the current implementation is aligned with the project plan in spec/
 ---
 
-You are performing a direction check — comparing the current state of the codebase against the project specification to identify alignment, drift, and gaps.
-
-## Step 1 — Verify spec/ exists and has content
-
-Check that `spec/` exists at the repo root and contains at least one `.md` file:
+Perform a direction check against `spec/plan.md`. Always operate from the repo root.
 
 ```bash
-ls spec/*.md 2>/dev/null
+ROOT=$(git rev-parse --show-toplevel)
 ```
 
-If the folder is missing or empty, **stop immediately** and tell the user:
-
-> `spec/` is missing or empty. Run `/init` to regenerate the plan, or create `spec/plan.md` manually before using `/direction`.
-
-Do not proceed past this step if spec is absent.
-
-## Step 2 — Load the spec
-
-Read every `.md` file in `spec/`. This is the authoritative plan. Do not rely on memory or prior context — read the files now.
-
-## Step 3 — Inspect the current implementation
-
-Collect the following signals. Run these in parallel:
-
-1. `git log --oneline -15` — recent work direction
-2. `git branch -a` — open feature branches and what they imply
-3. List Django apps: `ls avocent-backend/` — compare against spec module list
-4. List frontend routes: `ls avocent-frontend/src/app/\(dashboard\)/` — compare against spec modules
-5. Check integration stubs: `grep -r "WhatsApp\|FHIR\|LOINC\|ICD.10\|HIE\|SHA\|whereby\|Whereby" avocent-backend --include="*.py" -l 2>/dev/null`
-6. Check RBAC roles: `grep -n "ROLE_\|PERMISSION_MATRIX" avocent-backend/users/permissions.py | head -20`
-7. Check multi-tenancy state: `grep -rn "Row.Level\|RLS\|multi.tenant" avocent-backend --include="*.py" -l 2>/dev/null`
-8. Check Celery broker guard: `grep -n "CELERY_BROKER_CONFIGURED\|REDIS_URL" avocent-backend/avocent_backend/settings.py | head -5`
-
-## Step 4 — Produce the direction report
-
-Write a structured verdict under these headings. Be specific — cite file paths and commit messages where relevant. Do not pad.
+**Guard:** If `$ROOT/spec/` is missing or has no `.md` files, stop and say:
+> `spec/` is missing or empty — create `spec/plan.md` before running `/direction`.
 
 ---
 
-### Direction Report
+## Inspect the codebase
 
-**Overall verdict:** one of — `On Track` / `Minor Drift` / `Significant Drift` / `Off Course`
+Run all of these from `$ROOT` in parallel:
 
-One sentence explaining the verdict.
+```bash
+# 1. Recent commits and open branches
+git log --oneline -10
+git branch -a
+
+# 2. Backend — apps present
+ls $ROOT/avocent-backend/
+
+# 3. Frontend — dashboard routes present
+ls "$ROOT/avocent-frontend/src/app/(dashboard)/"
+
+# 4. Integrations — what's stubbed vs missing
+grep -rl "WhatsApp\|FHIR\|LOINC\|ICD.10\|HIE\|whereby" $ROOT/avocent-backend --include="*.py" 2>/dev/null
+
+# 5. RBAC — roles and permission matrix
+grep -n "ROLE_\|PERMISSION_MATRIX" $ROOT/avocent-backend/users/permissions.py | head -20
+
+# 6. Multi-tenancy / RLS state
+grep -rl "Row.Level\|RLS\|multi.tenant" $ROOT/avocent-backend --include="*.py" 2>/dev/null
+```
+
+Read `$ROOT/spec/plan.md` — this is the authoritative plan. Do not rely on memory.
 
 ---
 
-#### Aligned
+## Report
 
-List spec requirements that the implementation correctly satisfies. Keep this brief — bullet points, no elaboration needed.
+Output exactly these four sections. Be specific; cite paths where relevant. Do not pad.
 
-#### Gaps (spec requires it, not yet built)
+**Verdict:** `On Track` / `Minor Drift` / `Significant Drift` / `Off Course` — one sentence.
 
-For each gap: what the spec says should exist, what is actually there (if anything), and whether it is a known deferred item or an unaddressed gap. Distinguish between items that are *intentionally deferred* (listed as such in spec) and items that are simply *missing*.
+**Aligned** — bullet list of spec requirements the implementation satisfies.
 
-#### Drift (implementation diverges from spec intent)
+**Gaps** — what the spec requires but isn't built yet. Mark each as *deferred* (intentionally parked per spec) or *missing* (unaddressed).
 
-Things the codebase does that conflict with, contradict, or materially deviate from the spec — not just "not done yet" but "done differently than specified." Flag these clearly.
+**Drift** — anything implemented in a way that conflicts with or materially deviates from spec intent.
 
-#### Recommended next action
-
-One concrete next step to close the most important unaddressed gap, based on the spec's roadmap phase order. Skip deferred items.
-
----
-
-Keep the report factual and tight. If the implementation is clean and on track, say so plainly — do not invent problems.
+**Next action** — one concrete step to close the most important non-deferred gap, ordered by spec roadmap phase.

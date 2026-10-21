@@ -104,6 +104,7 @@ helm install avocent-local deploy/helm/avocent -n avocent --create-namespace -f 
 
 ## Custom agents
 
-`.claude/agents/` has two project-aware subagents:
+`.claude/agents/` has project-aware subagents:
 - **`code-reviewer`** — read-only diff review; checks correctness, security, clinic scoping, N+1s
 - **`test-runner`** — runs `python manage.py test`, diagnoses failures, iterates to green (Django runner, not pytest)
+- **`critical-paths`** — runs the Playwright suite, then walks every critical flow without a spec (encounters, queue, pharmacy, lab, billing, compliance, admin) in Chrome; returns a per-path pass/fail + timing report. Needs the stack running and Claude in Chrome connected

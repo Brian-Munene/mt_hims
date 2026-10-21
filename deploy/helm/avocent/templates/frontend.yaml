@@ -49,6 +49,12 @@ spec:
               value: {{ .Values.frontend.appName | quote }}
             - name: COOKIE_SECURE
               value: {{ .Values.frontend.secureCookies | quote }}
+            - name: JWT_ACCESS_COOKIE
+              value: {{ .Values.frontend.cookies.jwtAccess | quote }}
+            - name: JWT_REFRESH_COOKIE
+              value: {{ .Values.frontend.cookies.jwtRefresh | quote }}
+            - name: SESSION_COOKIE
+              value: {{ .Values.frontend.cookies.session | quote }}
             - name: API_ENCRYPTION_ENABLED
               value: {{ .Values.django.apiEncryption.enabled | quote }}
             - name: API_ENCRYPTION_KEY

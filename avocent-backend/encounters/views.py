@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from drf_spectacular.utils import OpenApiExample, extend_schema, extend_schema_view
@@ -7,8 +8,15 @@ from rest_framework.response import Response
 
 from core.api import ClinicScopedModelViewSet
 from encounters.models import Appointment, AvailabilitySlot, Encounter
-from encounters.serializers import AppointmentSerializer, AvailabilitySlotSerializer, EncounterSerializer
+from encounters.serializers import (
+    SLOT_OVERLAP_ERROR,
+    AppointmentSerializer,
+    AvailabilitySlotSerializer,
+    EncounterSerializer,
+    overlapping_availability_slots,
+)
 from encounters.services import schedule_appointment_reminder
+from users.models import PractitionerProfile
 
 
 @extend_schema_view(
@@ -23,6 +31,47 @@ class AvailabilitySlotViewSet(ClinicScopedModelViewSet):
     serializer_class = AvailabilitySlotSerializer
     filterset_fields = ("practitioner", "day_of_week", "is_available", "is_active")
     ordering_fields = ("day_of_week", "start_time", "created_at")
+
+    def perform_create(self, serializer):
+        self._save_without_overlap(serializer, super().perform_create)
+
+    def perform_update(self, serializer):
+        self._save_without_overlap(serializer, super().perform_update)
+
+    def _save_without_overlap(self, serializer, save):
+        """Serialize concurrent slot writes per practitioner and re-check overlap
+        while holding the lock.
+
+        The serializer's validate() already rejects overlaps, but that check is
+        a check-then-act race: under concurrency two requests can both read "no
+        overlap" before either row is written, and both then insert (the TOCTOU
+        gap the breaker reproduced). Taking a row lock on the practitioner forces
+        those requests to run one at a time, so the re-check below sees any slot a
+        competing request has already committed and rejects the overlap for real.
+        """
+        data = serializer.validated_data
+        instance = serializer.instance
+        practitioner = data.get("practitioner") or (instance.practitioner if instance else None)
+        day_of_week = data.get("day_of_week", instance.day_of_week if instance else None)
+        start_time = data.get("start_time", instance.start_time if instance else None)
+        end_time = data.get("end_time", instance.end_time if instance else None)
+
+        with transaction.atomic():
+            if practitioner is not None:
+                # Lock the practitioner row so concurrent slot writes for the same
+                # practitioner serialize on it; the lock is released at commit.
+                PractitionerProfile.objects.select_for_update().filter(pk=practitioner.pk).first()
+            if practitioner is not None and day_of_week is not None and start_time and end_time:
+                conflict = overlapping_availability_slots(
+                    practitioner,
+                    day_of_week,
+                    start_time,
+                    end_time,
+                    exclude_pk=instance.pk if instance else None,
+                )
+                if conflict.exists():
+                    raise drf_serializers.ValidationError(SLOT_OVERLAP_ERROR)
+            save(serializer)
 
 
 @extend_schema_view(

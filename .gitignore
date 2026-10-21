@@ -44,3 +44,11 @@ Thumbs.db
 
 # Claude Code project-local state — track agents + shared settings, ignore only personal overrides
 /.claude/settings.local.json
+
+# Terraform — provider caches, state, and local var files never belong in git
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfvars
+!**/*.tfvars.example
+**/crash.log

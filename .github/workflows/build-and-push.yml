@@ -1,0 +1,56 @@
+name: Build and push images
+
+# Builds on every push so an image exists for every commit, but nothing gets
+# deployed here — deploy-staging.yml / deploy-production.yml pick a specific
+# git-SHA-tagged image explicitly. Keeping build and deploy separate means a
+# deploy never races a still-in-progress build.
+on:
+  push:
+    branches: ["**"]
+
+permissions:
+  id-token: write # required for azure/login's OIDC token exchange
+  contents: read
+
+env:
+  ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }} # e.g. acravocent.azurecr.io — repo variable, not a secret
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: az acr login
+        run: az acr login --name "${ACR_LOGIN_SERVER%%.*}"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: avocent-backend
+          file: avocent-backend/docker/Dockerfile
+          push: true
+          tags: |
+            ${{ env.ACR_LOGIN_SERVER }}/avocent-backend:${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.ACR_LOGIN_SERVER }}/avocent-backend:buildcache
+          cache-to: type=registry,ref=${{ env.ACR_LOGIN_SERVER }}/avocent-backend:buildcache,mode=max
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: avocent-frontend
+          file: avocent-frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.ACR_LOGIN_SERVER }}/avocent-frontend:${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.ACR_LOGIN_SERVER }}/avocent-frontend:buildcache
+          cache-to: type=registry,ref=${{ env.ACR_LOGIN_SERVER }}/avocent-frontend:buildcache,mode=max

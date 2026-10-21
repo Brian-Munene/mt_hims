@@ -1,0 +1,86 @@
+# Production overlay for AKS. Non-secret values only — CI (.github/workflows/deploy-production.yml)
+# supplies django.secretKey / postgres.password / django.fieldEncryptionKey /
+# django.apiEncryption.key / redis.url / email.password from the production Key Vault
+# at deploy time via a generated values file, never committed here.
+#
+#   helm upgrade --install avocent-prod ./deploy/helm/avocent \
+#     -n avocent-prod \
+#     -f deploy/helm/avocent/values.yaml \
+#     -f deploy/helm/avocent/values-prod.yaml \
+#     -f <secrets file generated from Key Vault> \
+#     --set image.backend.tag=<git-sha> --set image.frontend.tag=<git-sha>
+
+image:
+  backend:
+    repository: acravocent.azurecr.io/avocent-backend
+    pullPolicy: IfNotPresent
+  frontend:
+    repository: acravocent.azurecr.io/avocent-frontend
+    pullPolicy: IfNotPresent
+
+web:
+  replicas: 2
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {cpu: "1", memory: 1Gi}
+
+worker:
+  replicas: 2
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {cpu: "1", memory: 1Gi}
+
+beat:
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: 250m, memory: 512Mi}
+
+frontend:
+  replicas: 2
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+  # Placeholder until the ingress-nginx LB IP is captured (see plan phase 6)
+  # and the nip.io hostnames below are finalized.
+  publicApiUrl: "https://api.REPLACE-WITH-LB-IP.nip.io"
+
+django:
+  debug: false
+  frontendUrl: "https://app.REPLACE-WITH-LB-IP.nip.io"
+  security:
+    sslRedirect: true
+    sessionCookieSecure: true
+    csrfCookieSecure: true
+    hstsSeconds: 31536000
+    csrfTrustedOrigins:
+      - "https://api.REPLACE-WITH-LB-IP.nip.io"
+      - "https://app.REPLACE-WITH-LB-IP.nip.io"
+
+postgres:
+  internal: false
+  # Set by Terraform output (infra/terraform/environments/production) — the
+  # Flexible Server's FQDN.
+  host: "REPLACE-WITH-PROD-POSTGRES-HOST"
+  port: 5432
+  sslMode: require
+
+redis:
+  internal: false
+  # url is intentionally omitted — it embeds the access key, so it's supplied
+  # at deploy time from Key Vault (rediss://<host>:6380/0?...).
+
+email:
+  configured: true
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  apiHost: "api.REPLACE-WITH-LB-IP.nip.io"
+  appHost: "app.REPLACE-WITH-LB-IP.nip.io"
+  tls:
+    - hosts:
+        - "api.REPLACE-WITH-LB-IP.nip.io"
+        - "app.REPLACE-WITH-LB-IP.nip.io"
+      secretName: avocent-tls

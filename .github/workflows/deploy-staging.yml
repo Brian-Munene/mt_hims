@@ -1,0 +1,96 @@
+name: Deploy staging
+
+# Fires after build-and-push.yml finishes successfully on main, deploying the
+# exact commit that was just built (github.event.workflow_run.head_sha) —
+# never a commit that might still be mid-build.
+on:
+  workflow_run:
+    workflows: ["Build and push images"]
+    branches: [main]
+    types: [completed]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    # Ties this run to the GitHub Environment named "staging" — required so
+    # the federated credential's subject (repo:...:environment:staging, see
+    # infra/terraform/modules/github-oidc) actually matches and OIDC login
+    # succeeds. Configure this Environment's variables (not secrets) in repo
+    # Settings -> Environments -> staging:
+    #   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID,
+    #   AKS_CLUSTER_NAME, AKS_RESOURCE_GROUP, KEY_VAULT_NAME, ACR_LOGIN_SERVER
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: azure/setup-kubectl@v4
+      - uses: azure/setup-helm@v4
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group "${{ vars.AKS_RESOURCE_GROUP }}" \
+            --name "${{ vars.AKS_CLUSTER_NAME }}" \
+            --overwrite-existing
+
+      - name: Fetch secrets from Key Vault and build a throwaway values file
+        run: |
+          set -euo pipefail
+          vault="${{ vars.KEY_VAULT_NAME }}"
+
+          get_secret() {
+            local value
+            value="$(az keyvault secret show --vault-name "$vault" --name "$1" --query value -o tsv)"
+            echo "::add-mask::$value"
+            printf '%s' "$value"
+          }
+
+          secret_key="$(get_secret SECRET_KEY)"
+          db_password="$(get_secret DB_PASSWORD)"
+          field_key="$(get_secret FIELD_ENCRYPTION_KEY)"
+          api_key="$(get_secret API_ENCRYPTION_KEY)"
+          redis_url="$(get_secret REDIS_URL)"
+          email_password="$(get_secret EMAIL_HOST_PASSWORD)"
+
+          cat > /tmp/secrets-values.yaml <<EOF
+          django:
+            secretKey: "$secret_key"
+            fieldEncryptionKey: "$field_key"
+            apiEncryption:
+              key: "$api_key"
+          postgres:
+            password: "$db_password"
+          redis:
+            url: "$redis_url"
+          email:
+            password: "$email_password"
+          EOF
+
+      - name: helm upgrade --install
+        run: |
+          helm upgrade --install avocent-staging deploy/helm/avocent \
+            --namespace avocent-staging --create-namespace \
+            -f deploy/helm/avocent/values.yaml \
+            -f deploy/helm/avocent/values-staging.yaml \
+            -f /tmp/secrets-values.yaml \
+            --set image.backend.tag=${{ github.event.workflow_run.head_sha }} \
+            --set image.frontend.tag=${{ github.event.workflow_run.head_sha }} \
+            --wait --timeout 10m
+
+      - name: Clean up throwaway values file
+        if: always()
+        run: rm -f /tmp/secrets-values.yaml

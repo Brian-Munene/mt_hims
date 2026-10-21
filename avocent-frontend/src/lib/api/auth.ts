@@ -1,11 +1,36 @@
 import { djangoRequest } from "@/lib/api/http";
-import type { AuthEnvelope, JwtTokenPair, SessionUser } from "@/lib/types";
+import type { AuthEnvelope, JwtTokenPair, SessionUser, TwoFactorChallenge } from "@/lib/types";
 
-export async function exchangeCredentials(email: string, password: string) {
-  const tokens = await djangoRequest<JwtTokenPair>("/api/auth/jwt/token/", {
+export async function exchangeCredentials(
+  email: string,
+  password: string,
+): Promise<AuthEnvelope | TwoFactorChallenge> {
+  const response = await djangoRequest<JwtTokenPair | TwoFactorChallenge>("/api/auth/jwt/token/", {
     method: "POST",
     body: { email, password },
     encrypted: true,
+  });
+
+  if ("two_factor_required" in response) {
+    return response;
+  }
+
+  const user = await djangoRequest<SessionUser>("/api/auth/me/", {
+    token: response.access,
+  });
+
+  return {
+    ...response,
+    user,
+  } satisfies AuthEnvelope;
+}
+
+export async function verifyTwoFactorLogin(challengeToken: string, code: string) {
+  const tokens = await djangoRequest<JwtTokenPair>("/api/auth/jwt/token/2fa/", {
+    method: "POST",
+    body: { challenge_token: challengeToken, code },
+    encrypted: true,
+    token: null,
   });
 
   const user = await djangoRequest<SessionUser>("/api/auth/me/", {

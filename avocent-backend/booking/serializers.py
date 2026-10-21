@@ -3,12 +3,12 @@ from rest_framework import serializers
 
 from booking.models import Booking, BookingEvent, BookingQueue
 from booking.services import initialize_booking_defaults
-from core.serializers import resolve_field, validate_clinic_match
+from core.serializers import resolve_effective_clinic, resolve_field, validate_clinic_match
 
 
 class BookingSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
-        clinic = resolve_field(self, attrs, "clinic")
+        clinic = resolve_effective_clinic(self, attrs)
         patient = resolve_field(self, attrs, "patient")
         appointment = resolve_field(self, attrs, "appointment")
         practitioner = resolve_field(self, attrs, "assigned_practitioner")
@@ -41,7 +41,20 @@ class BookingSerializer(serializers.ModelSerializer):
     class Meta:
         model = Booking
         fields = "__all__"
-        read_only_fields = ("id", "booking_number", "payment_status", "created_at", "updated_at", "created_by")
+        # clinic is read-only: perform_create derives it from the requesting
+        # user, so a client can never book a patient into a clinic that
+        # isn't their own. (validate()'s clinic cross-checks above still work
+        # on create — resolve_field() just resolves to None until
+        # perform_create sets it — and on update via the existing instance.)
+        read_only_fields = (
+            "id",
+            "clinic",
+            "booking_number",
+            "payment_status",
+            "created_at",
+            "updated_at",
+            "created_by",
+        )
 
 
 class BookingEventSerializer(serializers.ModelSerializer):

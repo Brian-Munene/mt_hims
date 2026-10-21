@@ -36,7 +36,10 @@ The app will be available at [http://localhost:3000](http://localhost:3000).
 
 ## End-to-end tests (frontend + backend together)
 
-`e2e/` holds [Playwright](https://playwright.dev) tests that drive a real browser against a fully running stack — real Next.js, real Django, real Postgres — rather than mocking either side. This is the layer that catches bugs which only show up when the two actually talk to each other (auth cookies, token refresh, proxy redirects); the current suite specifically regression-tests the login/session-refresh bugs fixed in earlier sessions.
+`e2e/` holds [Playwright](https://playwright.dev) tests that drive a real browser against a fully running stack — real Next.js, real Django, real Postgres — rather than mocking either side. This is the layer that catches bugs which only show up when the two actually talk to each other:
+
+- `auth.spec.ts` — login, logout, protected-route navigation, and regression tests for the login/session-refresh bugs fixed in earlier sessions (an expired access cookie with a live refresh cookie must not log the user out; a genuinely dead refresh cookie must log out cleanly, not loop).
+- `clinical-flow.spec.ts` — a real clinic-desk flow: register a patient, book them in as a walk-in, confirm both records surface through their own list/search pages. Writing this test surfaced and fixed a real backend bug: `PatientSerializer`/`BookingSerializer` required a client-supplied `clinic`, so every create from the current frontend (which never sends one) was failing with 400 — `clinic` is now read-only on both, always derived server-side from the requesting user (see `patients/serializers.py`, `booking/serializers.py`, `core/serializers.py::resolve_effective_clinic`). This test creates and then deletes its own records, so repeat runs don't accumulate data.
 
 Playwright does **not** start the stack for you — bring up whichever environment you're already using, then seed a deterministic test user against it:
 

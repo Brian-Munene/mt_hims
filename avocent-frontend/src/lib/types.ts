@@ -34,6 +34,7 @@ export interface SessionUser {
   is_staff: boolean;
   is_active: boolean;
   is_superuser: boolean;
+  is_2fa_enabled: boolean;
   role_names: RoleName[];
   created_at?: string;
   updated_at?: string;
@@ -93,6 +94,16 @@ export interface JwtTokenPair {
 
 export interface AuthEnvelope extends JwtTokenPair {
   user: SessionUser;
+}
+
+export interface TwoFactorChallenge {
+  two_factor_required: true;
+  challenge_token: string;
+}
+
+export interface TwoFactorSetup {
+  secret: string;
+  provisioning_uri: string;
 }
 
 export interface BaseResource {

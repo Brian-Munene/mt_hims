@@ -1,4 +1,6 @@
+import pyotp
 from django.conf import settings
+from django.contrib.auth.models import update_last_login
 from django.contrib.auth.tokens import default_token_generator
 from django.utils import timezone
 from django.utils.encoding import force_bytes, force_str
@@ -9,6 +11,10 @@ from rest_framework.authtoken.models import Token
 from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenObtainSerializer
+from rest_framework_simplejwt.settings import api_settings as jwt_api_settings
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenObtainPairView
 
 from core.api import ClinicScopedModelViewSet
 from notifications.email import send_notification_email
@@ -20,9 +26,12 @@ from users.serializers import (
     PasswordResetRequestSerializer,
     PractitionerProfileSerializer,
     RoleSerializer,
+    TwoFactorCodeSerializer,
+    TwoFactorLoginSerializer,
     UserRoleSerializer,
     UserSerializer,
 )
+from users.two_factor import issue_challenge_token, resolve_challenge_token
 
 
 @extend_schema(
@@ -90,6 +99,146 @@ class LogoutAPIView(generics.GenericAPIView):
         request.user.last_login = timezone.now()
         request.user.save(update_fields=["last_login"])
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class TwoFactorTokenObtainPairSerializer(TokenObtainPairSerializer):
+    """Same as the stock serializer for accounts without 2FA -- byte-identical
+    {refresh, access} response. For a 2FA-enabled account, stops short of
+    minting tokens and instead returns a short-lived challenge_token that
+    TwoFactorLoginVerifyAPIView exchanges for real tokens once the correct
+    TOTP code is supplied.
+    """
+
+    def validate(self, attrs):
+        # Calls the grandparent directly (not super().validate()) so
+        # credentials are authenticated exactly once here, rather than once
+        # in this call and again inside TokenObtainPairSerializer.validate()
+        # if we fell through to it below.
+        TokenObtainSerializer.validate(self, attrs)
+
+        if self.user.is_2fa_enabled:
+            return {"two_factor_required": True, "challenge_token": issue_challenge_token(self.user)}
+
+        refresh = self.get_token(self.user)
+        data = {"refresh": str(refresh), "access": str(refresh.access_token)}
+        if jwt_api_settings.UPDATE_LAST_LOGIN:
+            update_last_login(None, self.user)
+        return data
+
+
+class TwoFactorTokenObtainPairView(TokenObtainPairView):
+    serializer_class = TwoFactorTokenObtainPairSerializer
+
+
+@extend_schema(
+    tags=["Authentication"],
+    summary="Complete JWT login with a TOTP code",
+    description=(
+        "Exchange the challenge_token returned by jwt/token/ (when the account has 2FA enabled) "
+        "plus a current authenticator code for a real access/refresh token pair."
+    ),
+)
+class TwoFactorLoginVerifyAPIView(generics.GenericAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = TwoFactorLoginSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user_id = resolve_challenge_token(serializer.validated_data["challenge_token"])
+        user = User.objects.filter(pk=user_id, is_active=True).first() if user_id else None
+
+        if (
+            user is None
+            or not user.is_2fa_enabled
+            or not pyotp.TOTP(user.otp_secret).verify(serializer.validated_data["code"], valid_window=1)
+        ):
+            return Response({"detail": "Invalid or expired code."}, status=status.HTTP_400_BAD_REQUEST)
+
+        refresh = RefreshToken.for_user(user)
+        if jwt_api_settings.UPDATE_LAST_LOGIN:
+            update_last_login(None, user)
+
+        return Response(
+            {"refresh": str(refresh), "access": str(refresh.access_token)},
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema(
+    tags=["Authentication"],
+    summary="Start two-factor authentication setup",
+    description=(
+        "Generate a new authenticator secret for the current user and return it (with a "
+        "provisioning URI for QR/manual entry). Does not enable 2FA by itself -- the user must "
+        "prove possession of the authenticator via 2fa/enable/ first."
+    ),
+)
+class TwoFactorSetupAPIView(generics.GenericAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = EmptySerializer
+
+    def post(self, request, *args, **kwargs):
+        user = request.user
+        secret = pyotp.random_base32()
+        user.otp_secret = secret
+        user.save(update_fields=["otp_secret"])
+
+        provisioning_uri = pyotp.TOTP(secret).provisioning_uri(name=user.email, issuer_name="Avocent Health Centre")
+        return Response({"secret": secret, "provisioning_uri": provisioning_uri}, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    tags=["Authentication"],
+    summary="Enable two-factor authentication",
+    description="Confirm a pending authenticator secret with a current code and turn 2FA on.",
+)
+class TwoFactorEnableAPIView(generics.GenericAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = TwoFactorCodeSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = request.user
+        if not user.otp_secret:
+            return Response(
+                {"detail": "Start setup first by requesting a new authenticator secret."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not pyotp.TOTP(user.otp_secret).verify(serializer.validated_data["code"], valid_window=1):
+            return Response({"detail": "Invalid code."}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.is_2fa_enabled = True
+        user.save(update_fields=["is_2fa_enabled"])
+        return Response({"detail": "Two-factor authentication enabled."}, status=status.HTTP_200_OK)
+
+
+@extend_schema(
+    tags=["Authentication"],
+    summary="Disable two-factor authentication",
+    description="Turn 2FA off. Requires a current authenticator code, not just an active session.",
+)
+class TwoFactorDisableAPIView(generics.GenericAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = TwoFactorCodeSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = request.user
+        if not user.is_2fa_enabled or not pyotp.TOTP(user.otp_secret).verify(
+            serializer.validated_data["code"], valid_window=1
+        ):
+            return Response({"detail": "Invalid code."}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.is_2fa_enabled = False
+        user.otp_secret = ""
+        user.save(update_fields=["is_2fa_enabled", "otp_secret"])
+        return Response({"detail": "Two-factor authentication disabled."}, status=status.HTTP_200_OK)
 
 
 @extend_schema(

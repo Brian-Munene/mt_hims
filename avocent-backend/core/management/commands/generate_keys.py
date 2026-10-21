@@ -23,6 +23,10 @@ class Command(BaseCommand):
         "Generate SECRET_KEY, API_ENCRYPTION_KEY, and FIELD_ENCRYPTION_KEY and "
         "write them into an environment file."
     )
+    # This command's entire purpose is to run before those keys exist, so it
+    # must not be blocked by core.E001/E002 (field_encryption_key_check),
+    # which every other management command deliberately fails without them.
+    requires_system_checks = []
 
     def add_arguments(self, parser):
         parser.add_argument(

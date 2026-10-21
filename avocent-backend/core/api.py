@@ -66,10 +66,36 @@ class ClinicScopedModelViewSet(viewsets.ModelViewSet):
         model_field_names = {field.name for field in model._meta.concrete_fields}
         save_kwargs = {}
 
-        if "clinic" in model_field_names and "clinic" not in serializer.validated_data:
-            save_kwargs["clinic"] = self.request.user.clinic
+        if "clinic" in model_field_names:
+            if self.request.user.is_superuser:
+                # Superusers are the codebase's one established cross-clinic
+                # bypass (see can_access_object / has_permission) — only
+                # default clinic for them when the client omitted it.
+                if "clinic" not in serializer.validated_data:
+                    save_kwargs["clinic"] = self.request.user.clinic
+            else:
+                # Every other user must be forced into their own clinic,
+                # overriding whatever `clinic` value the client submitted —
+                # not just defaulting an omitted one. Without this, any
+                # authenticated user with write access could create a
+                # record in an arbitrary clinic by supplying its id.
+                save_kwargs["clinic"] = self.request.user.clinic
         if "created_by" in model_field_names and "created_by" not in serializer.validated_data:
             save_kwargs["created_by"] = self.request.user
+
+        serializer.save(**save_kwargs)
+
+    def perform_update(self, serializer):
+        model = serializer.Meta.model
+        model_field_names = {field.name for field in model._meta.concrete_fields}
+        save_kwargs = {}
+
+        if "clinic" in model_field_names and not self.request.user.is_superuser:
+            # get_queryset() already scopes non-superusers to their own
+            # clinic, so serializer.instance.clinic is always their clinic
+            # here — this just blocks a client from moving the record to a
+            # different clinic by including `clinic` in the update payload.
+            save_kwargs["clinic"] = serializer.instance.clinic
 
         serializer.save(**save_kwargs)
 

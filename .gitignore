@@ -10,6 +10,7 @@
 **/*.log
 **/media/
 **/staticfiles/
+**/celerybeat-schedule
 
 # Node / Next.js
 **/node_modules/
@@ -41,5 +42,13 @@ Thumbs.db
 # Personal / business documents — not part of the codebase
 /Documents/
 
-# Claude Code project-local state
-/.claude/
+# Claude Code project-local state — track agents + shared settings, ignore only personal overrides
+/.claude/settings.local.json
+
+# Terraform — provider caches, state, and local var files never belong in git
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfvars
+!**/*.tfvars.example
+**/crash.log

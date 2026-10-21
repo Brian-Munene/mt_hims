@@ -27,6 +27,15 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
         return value
 
 
+class TwoFactorCodeSerializer(serializers.Serializer):
+    code = serializers.RegexField(r"^\d{6}$")
+
+
+class TwoFactorLoginSerializer(serializers.Serializer):
+    challenge_token = serializers.CharField()
+    code = serializers.RegexField(r"^\d{6}$")
+
+
 class DepartmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Department
@@ -49,13 +58,25 @@ class UserSerializer(serializers.ModelSerializer):
             "is_staff",
             "is_active",
             "is_superuser",
+            "is_2fa_enabled",
             "role_names",
             "created_at",
             "updated_at",
         )
         # is_staff/is_superuser gate Django admin access; they are only ever
         # set by the createsuperuser command, never through the API.
-        read_only_fields = ("id", "is_staff", "is_superuser", "created_at", "updated_at", "role_names")
+        # is_2fa_enabled is only ever flipped by TwoFactorEnableAPIView /
+        # TwoFactorDisableAPIView, which require proving possession of the
+        # authenticator -- never a plain field write.
+        read_only_fields = (
+            "id",
+            "is_staff",
+            "is_superuser",
+            "is_2fa_enabled",
+            "created_at",
+            "updated_at",
+            "role_names",
+        )
 
     @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_role_names(self, obj):

@@ -5,6 +5,7 @@ from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.core.exceptions import ValidationError
 from django.db import models
 
+from core.fields import EncryptedTextField
 from core.models import CoreModel
 from organization.models import Clinic
 from users.constants import DEFAULT_ROLE_DEFINITIONS
@@ -68,6 +69,13 @@ class User(AbstractBaseUser, PermissionsMixin, CoreModel):
     email = models.EmailField(unique=True)
     phone = models.CharField(max_length=30, blank=True)
     is_staff = models.BooleanField(default=False)
+
+    # otp_secret is written as soon as 2FA setup starts (see
+    # TwoFactorSetupAPIView) but is_2fa_enabled only flips to True once the
+    # user proves possession of the authenticator by submitting a valid code
+    # (TwoFactorEnableAPIView) -- a secret alone never gates login.
+    otp_secret = EncryptedTextField(blank=True, default="")
+    is_2fa_enabled = models.BooleanField(default=False)
 
     objects = UserManager()
 

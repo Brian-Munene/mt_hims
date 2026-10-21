@@ -1,6 +1,5 @@
 import csv
 import io
-import logging
 
 from django.http import HttpResponse
 from drf_spectacular.utils import OpenApiExample, extend_schema, extend_schema_view
@@ -22,9 +21,6 @@ from patients.serializers import (
     PatientIdentifierSerializer,
     PatientSerializer,
 )
-
-logger = logging.getLogger(__name__)
-
 
 @extend_schema_view(
     list=extend_schema(
@@ -90,42 +86,6 @@ class PatientViewSet(ClinicScopedModelViewSet):
     filterset_fields = ("gender", "is_active")
     search_fields = ("first_name", "last_name", "phone", "email", "sha_number")
     ordering_fields = ("created_at", "updated_at", "first_name", "last_name", "date_of_birth")
-
-    def list(self, request, *args, **kwargs):
-        logger.debug("Listing patients - request received")
-        response = super().list(request, *args, **kwargs)
-        logger.info(f"Patients listed successfully - returned {response.data.get('count', 0) if hasattr(response, 'data') and isinstance(response.data, dict) else 'multiple'} results")
-        return response
-
-    def retrieve(self, request, *args, **kwargs):
-        logger.debug(f"Retrieving patient - pk={kwargs.get('pk')}")
-        response = super().retrieve(request, *args, **kwargs)
-        logger.info(f"Patient retrieved successfully - patient_id={kwargs.get('pk')}")
-        return response
-
-    def create(self, request, *args, **kwargs):
-        logger.debug(f"Creating patient - data={request.data}")
-        response = super().create(request, *args, **kwargs)
-        logger.info(f"Patient created successfully - patient_id={response.data.get('id')}")
-        return response
-
-    def update(self, request, *args, **kwargs):
-        logger.debug(f"Updating patient - pk={kwargs.get('pk')}, data={request.data}")
-        response = super().update(request, *args, **kwargs)
-        logger.info(f"Patient updated successfully - patient_id={kwargs.get('pk')}")
-        return response
-
-    def partial_update(self, request, *args, **kwargs):
-        logger.debug(f"Partially updating patient - pk={kwargs.get('pk')}, data={request.data}")
-        response = super().partial_update(request, *args, **kwargs)
-        logger.info(f"Patient partially updated successfully - patient_id={kwargs.get('pk')}")
-        return response
-
-    def destroy(self, request, *args, **kwargs):
-        logger.debug(f"Deleting patient - pk={kwargs.get('pk')}")
-        response = super().destroy(request, *args, **kwargs)
-        logger.info(f"Patient deleted successfully - patient_id={kwargs.get('pk')}")
-        return response
 
     @extend_schema(tags=["Patient Records"], summary="Export patients as CSV")
     @action(detail=False, methods=["get"], url_path="export-csv")
@@ -217,30 +177,6 @@ class PatientIdentifierViewSet(ClinicScopedModelViewSet):
     search_fields = ("identifier_value", "patient__first_name", "patient__last_name")
     ordering_fields = ("created_at", "updated_at")
 
-    def list(self, request, *args, **kwargs):
-        logger.debug("Listing patient identifiers - request received")
-        response = super().list(request, *args, **kwargs)
-        logger.info(f"Patient identifiers listed successfully")
-        return response
-
-    def create(self, request, *args, **kwargs):
-        logger.debug(f"Creating patient identifier - data={request.data}")
-        response = super().create(request, *args, **kwargs)
-        logger.info(f"Patient identifier created successfully - id={response.data.get('id')}")
-        return response
-
-    def update(self, request, *args, **kwargs):
-        logger.debug(f"Updating patient identifier - pk={kwargs.get('pk')}")
-        response = super().update(request, *args, **kwargs)
-        logger.info(f"Patient identifier updated successfully - id={kwargs.get('pk')}")
-        return response
-
-    def destroy(self, request, *args, **kwargs):
-        logger.debug(f"Deleting patient identifier - pk={kwargs.get('pk')}")
-        response = super().destroy(request, *args, **kwargs)
-        logger.info(f"Patient identifier deleted successfully - id={kwargs.get('pk')}")
-        return response
-
 
 @extend_schema_view(
     list=extend_schema(
@@ -260,30 +196,6 @@ class AllergyViewSet(ClinicScopedModelViewSet):
     filterset_fields = ("severity", "patient", "is_active")
     search_fields = ("substance", "reaction", "patient__first_name", "patient__last_name")
     ordering_fields = ("created_at", "updated_at")
-
-    def list(self, request, *args, **kwargs):
-        logger.debug("Listing allergies - request received")
-        response = super().list(request, *args, **kwargs)
-        logger.info(f"Allergies listed successfully")
-        return response
-
-    def create(self, request, *args, **kwargs):
-        logger.debug(f"Creating allergy - data={request.data}")
-        response = super().create(request, *args, **kwargs)
-        logger.info(f"Allergy created successfully - id={response.data.get('id')}")
-        return response
-
-    def update(self, request, *args, **kwargs):
-        logger.debug(f"Updating allergy - pk={kwargs.get('pk')}")
-        response = super().update(request, *args, **kwargs)
-        logger.info(f"Allergy updated successfully - id={kwargs.get('pk')}")
-        return response
-
-    def destroy(self, request, *args, **kwargs):
-        logger.debug(f"Deleting allergy - pk={kwargs.get('pk')}")
-        response = super().destroy(request, *args, **kwargs)
-        logger.info(f"Allergy deleted successfully - id={kwargs.get('pk')}")
-        return response
 
 
 @extend_schema_view(

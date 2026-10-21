@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { Menu } from "lucide-react";
 
@@ -39,6 +40,9 @@ export function AppShell({
             <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Signed in</p>
             <p className="mt-2 font-medium text-slate-900">{user.email}</p>
             <p className="mt-1 text-sm text-slate-500">{user.role_names.join(" • ")}</p>
+            <Link href="/security" className="mt-3 inline-block text-sm font-medium text-teal-700 hover:underline">
+              Security settings
+            </Link>
           </div>
         </aside>
 

@@ -16,11 +16,17 @@ export async function POST(request: Request) {
   try {
     const body = bodySchema.parse(await request.json());
     email = body.email;
-    const auth = await exchangeCredentials(body.email, body.password);
-    await persistAuthSession(auth);
+    const result = await exchangeCredentials(body.email, body.password);
+
+    if ("two_factor_required" in result) {
+      void logger.info("User password verified, awaiting 2FA code", { email });
+      return NextResponse.json({ ok: false, two_factor_required: true, challenge_token: result.challenge_token });
+    }
+
+    await persistAuthSession(result);
 
     void logger.info("User signed in", { email });
-    return NextResponse.json({ ok: true, user: auth.user });
+    return NextResponse.json({ ok: true, user: result.user });
   } catch (error) {
     if (error instanceof ApiError) {
       void logger.warn("Login failed", { email, status: error.status });

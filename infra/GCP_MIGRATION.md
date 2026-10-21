@@ -11,21 +11,20 @@ Dockerfiles, and the Django/Next.js code (apart from the optional media-storage 
 
 ---
 
-## 0. Decide before starting
+## 0. Decisions (recorded 2026-10-22)
 
-| # | Decision | Why it matters |
-|---|---|---|
-| 1 | **Confirm the move with the client.** The Lead Health Informatics Engineer JD says "Cloud Operations (Azure)… Azure preferred", and `spec/plan.md` pins AKS. | Update both once agreed, or the `/direction` check will flag GCP as drift. |
-| 2 | **Is there real patient data on Azure?** | If yes, Step 7 (data migration) is required and `FIELD_ENCRYPTION_KEY` **must** be carried over (see ⚠️ below). If no, skip Step 7 and generate fresh secrets. |
-| 3 | **Get a real domain before cutover.** Hosts are currently `*.<LB-IP>.nip.io`. | The LB IP changes on GCP, so every hostname changes too: new certs, new `frontendUrl`/CSRF origins, broken bookmarks. With a real domain, cutover is just a DNS change. |
-| 4 | **GKE Standard or Autopilot?** | This plan assumes **Standard**, which is the closest match to the current AKS setup (fixed node pool sizes). Autopilot is less ops work but bills per pod. |
+| # | Decision | Outcome | What it means for this plan |
+|---|---|---|---|
+| 1 | Leave Azure for GCP | **Approved** by the client. `spec/plan.md` updated. | The JD's "Azure preferred" is overridden. `/direction` should no longer flag GCP. |
+| 2 | Real patient data on Azure? | **No.** The Azure account had problems and never held production data. | **Skip Step 7.** Terraform generates fresh `SECRET_KEY` / `FIELD_ENCRYPTION_KEY` / `API_ENCRYPTION_KEY` with `random_*`, as it does today. No Key Vault copy, no rollback to Azure. |
+| 3 | Real domain | **Later.** Launch on `*.<GCP-ingress-IP>.nip.io`. | Once the domain is registered, follow "Switching to the real domain" in Step 8. |
+| 4 | GKE mode | **Standard** | Fixed node pools, sized as in Step 1. |
+| 5 | Redis in-transit TLS | **On** | Mount the Memorystore CA in the pods (Step 5). |
+| 6 | Uploaded files | **Move to GCS** (default, not objected to) | Do Step 6 as part of the migration. |
 
-> ⚠️ **`FIELD_ENCRYPTION_KEY` is the one thing you cannot regenerate.** PHI columns
-> (`core/fields.py`) are encrypted with it. The current Terraform generates it with `random_id`,
-> and copying that pattern to GCP would create a **new** key, leaving every encrypted field
-> unreadable after the data restore. Copy the existing value out of Key Vault into Secret Manager.
-> Carry over `API_ENCRYPTION_KEY` too, so the frontend and backend keep matching. `SECRET_KEY` can
-> rotate, but rotating it logs everyone out.
+> ⚠️ **Once GCP holds real data, `FIELD_ENCRYPTION_KEY` can never be regenerated.** PHI columns
+> (`core/fields.py`) are encrypted with it. Keep `random_id.field_encryption_key` out of any
+> `terraform taint`/`-replace`, and back up the Secret Manager value somewhere offline.
 
 ---
 
@@ -133,14 +132,12 @@ provider "kubernetes" {
 The two-step first apply (`-target=module.gke`, then a full apply) is still needed for the same
 reason it is today: the kubernetes and helm providers read the cluster's outputs.
 
-**Secrets:** for an environment **with existing data**, don't use `random_id` for
-`FIELD_ENCRYPTION_KEY`/`API_ENCRYPTION_KEY`. Create the secret resource with no version in
-Terraform, then copy the value across manually:
+**Secrets:** no data is coming from Azure (Decision 2), so keep the current pattern:
+`random_password`/`random_id` in each environment root, written into Secret Manager.
+`EMAIL_HOST_PASSWORD` starts empty, and you fill it in by hand once an SMTP provider is chosen:
 
 ```bash
-az keyvault secret show --vault-name kv-avocent-production --name FIELD_ENCRYPTION_KEY --query value -o tsv \
-  | gcloud secrets versions add FIELD_ENCRYPTION_KEY --project avocent-prod --data-file=-
-# repeat for API_ENCRYPTION_KEY (and SECRET_KEY to avoid logging everyone out)
+printf '%s' "<smtp-password>" | gcloud secrets versions add EMAIL_HOST_PASSWORD --project <prod-project> --data-file=-
 ```
 
 **Apply order:** `bootstrap` → `environments/staging` → validate staging end-to-end →
@@ -224,7 +221,9 @@ with `gcloud storage cp -r`.
 
 ---
 
-## 7. Data migration (only if Azure holds real data)
+## 7. Data migration — **SKIPPED** (Decision 2: no data on Azure)
+
+Kept for reference only, in case data ever has to move between Postgres instances.
 
 Redis doesn't need migrating: it only holds the Celery broker and cache. Before cutover, wait for
 the Celery queues to drain.
@@ -258,30 +257,39 @@ it and restrict who can access it.
 
 ## 8. Cutover
 
+There are no users and no data on Azure, so this is a first launch rather than a cutover. You
+don't need a maintenance window or a rollback plan.
+
 1. Get **staging fully green on GKE**: deploy from CI, run migrations, `npm run test:e2e` with
    `E2E_BASE_URL` pointing at it, check the TLS cert issued, send a test email, and run a Celery
    task + Beat schedule.
-2. Lower the DNS TTL to 60s at least 24h ahead (if using a real domain).
-3. Production maintenance window → Step 7 → `git tag v*` to deploy prod on GKE → run
-   `createsuperuser` only if this is a fresh database.
-4. Point DNS at the GKE ingress IP → wait for cert-manager to issue certs → smoke-test login,
-   patient search, booking and document upload.
-5. **Rollback** (while Azure is still running): point DNS back and scale the AKS deployments up
-   again. Any writes made on GCP after cutover are lost if you roll back, so decide to go/no-go
-   within the window.
+2. Put the production ingress IP into the nip.io hosts in `values-prod.yaml`, then `git tag v*`
+   to deploy.
+3. Run `kubectl exec … createsuperuser` (per `NOTES.txt`), then smoke-test login, patient search,
+   booking and document upload.
+
+**Switching to the real domain (later):**
+
+1. At the registrar, create `A` records for `app.<domain>` and `api.<domain>` pointing at each
+   environment's ingress IP (the `google_compute_address`, which stays fixed).
+2. In `values-{staging,prod}.yaml`, update `ingress.apiHost`/`appHost`, `ingress.tls.hosts`,
+   `django.frontendUrl`, `frontend.publicApiUrl` and `django.security.csrfTrustedOrigins`.
+3. Deploy. cert-manager issues new certs automatically. The nip.io URLs stop working, so tell
+   any testers.
 
 ---
 
-## 9. Decommission Azure (after a 2–4 week soak)
+## 9. Decommission Azure
 
-1. Take a final `pg_dump` and archive it (Step 7).
-2. `terraform destroy` in `environments/production`, then `environments/staging`, from the **old**
-   Azure code. Keep a git tag such as `azure-final` before deleting it from `main`.
-3. Key Vaults have purge protection (90 days), so they stay soft-deleted for that long. That's
-   expected.
-4. Delete the Entra ID app registrations, the tfstate storage account (`bootstrap/`), and the
-   GitHub `AZURE_*` variables.
-5. Cancel or downgrade the Azure subscription.
+No data and no soak period, so this can happen as soon as GCP staging works. Because of the account
+problems, `terraform destroy` may not be possible.
+
+1. Tag the old code (`git tag azure-final`) before replacing `infra/terraform/`.
+2. If the account is still usable: `terraform destroy` in `environments/production` →
+   `environments/staging` → `bootstrap`. If it isn't: in the Azure portal, check that no resource
+   groups are still billing (`rg-avocent-*`), then cancel the subscription.
+3. Delete the Entra ID app registrations (`avocent-*-github-oidc`), and delete the GitHub
+   `AZURE_*`, `AKS_*`, `KEY_VAULT_NAME` and `ACR_LOGIN_SERVER` variables.
 
 ---
 
@@ -297,14 +305,13 @@ it and restrict who can access it.
 
 ## Checklist
 
-- [ ] Client sign-off on leaving Azure; `spec/plan.md` updated
-- [ ] Domain purchased, DNS hosted somewhere you control
+- [x] Client sign-off on leaving Azure; `spec/plan.md` updated
+- [x] Decisions recorded (no data, domain later, GKE Standard, Redis TLS on, media → GCS)
 - [ ] GCP projects, billing, budget alerts, APIs, DPA
 - [ ] Terraform rewritten; `bootstrap` + staging applied
-- [ ] Encryption keys copied from Key Vault → Secret Manager (not regenerated)
 - [ ] Workflows switched to WIF; staging deploys from `main`
 - [ ] Media moved to GCS
 - [ ] Staging e2e green on GKE
-- [ ] Prod applied; data migrated and verified (PHI decrypts)
-- [ ] DNS cutover; smoke tests pass
-- [ ] Soak period done; Azure destroyed; docs updated
+- [ ] Prod applied on nip.io; smoke tests pass; `FIELD_ENCRYPTION_KEY` backed up offline
+- [ ] Azure resources removed / subscription cancelled; docs updated
+- [ ] Later: domain registered and hosts switched (Step 8)

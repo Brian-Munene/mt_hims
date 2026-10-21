@@ -6,7 +6,7 @@ Synthesized from: HIMS Database & Permissions Blueprint, Lead Health Informatics
 
 ## Vision
 
-A Kenya-focused clinic-first HIMS and telemedicine platform targeting DHA certification and eventual multi-tenant SaaS deployment. Stack: Django + Next.js on Azure AKS (Africa East / af-south-1).
+A Kenya-focused clinic-first HIMS and telemedicine platform targeting DHA certification and eventual multi-tenant SaaS deployment. Stack: Django + Next.js on Google Cloud GKE (`africa-south1`). Moved from Azure AKS in Oct 2026 (approved by the client) — see `infra/GCP_MIGRATION.md`.
 
 ---
 
@@ -61,8 +61,8 @@ Enforced via `users/permissions.py::PERMISSION_MATRIX` + `ClinicScopedModelViewS
 ## Deployment Architecture Requirements
 
 - **Docker Compose** (local/staging/prod overrides): Done — Caddy TLS, whitenoise, gunicorn, Celery worker + beat.
-- **Kubernetes (Helm)**: In progress — Helm chart at `deploy/helm/avocent/`; Azure AKS Terraform at `infra/terraform/`.
-- **Azure AKS** (Africa East region): Terraform scaffolded; actual `.tf` source on `feature/azure-aks-deployment` branch.
+- **Kubernetes (Helm)**: In progress — Helm chart at `deploy/helm/avocent/`; cluster Terraform at `infra/terraform/`.
+- **GCP GKE** (`africa-south1`): Migration from Azure AKS approved; Terraform rewrite pending per `infra/GCP_MIGRATION.md`. The Azure Terraform currently in `infra/terraform/` is superseded (never held production data).
 - **CI/CD**: GitHub Actions pipeline — Django tests + Next.js typecheck/lint/build on every PR.
 - **Disaster recovery / backups**: Not started.
 - **Error monitoring (Sentry)**: Not started.

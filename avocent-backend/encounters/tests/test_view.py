@@ -115,6 +115,13 @@ class AvailabilitySlotOverlapTests(ClinicAPIFixtureMixin, APITestCase):
             1,
         )
 
+    def test_overlapping_monday_slot_is_rejected(self):
+        # Monday is day_of_week=0, which a falsy-value fallback would skip.
+        self.client.force_authenticate(self.admin)
+        self.assertEqual(self._post_slot("09:00", "11:00", day_of_week=0).status_code, status.HTTP_201_CREATED)
+
+        self.assertEqual(self._post_slot("10:00", "12:00", day_of_week=0).status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_perform_create_rejects_overlap_committed_after_validation(self):
         """The viewset's lock-guarded re-check catches an overlap that the
         serializer's up-front validation did not see — the TOCTOU window a

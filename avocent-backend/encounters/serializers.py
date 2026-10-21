@@ -4,52 +4,40 @@ from django.utils import timezone
 from core.serializers import resolve_effective_clinic, resolve_field, validate_clinic_match
 from encounters.models import Appointment, AvailabilitySlot, Encounter
 
-SLOT_OVERLAP_ERROR = "This slot overlaps with an existing availability slot for this practitioner."
-
-
-def overlapping_availability_slots(practitioner, day_of_week, start_time, end_time, *, exclude_pk=None):
-    """Slots for this practitioner/day whose [start_time, end_time) window overlaps
-    the given one. Touching boundaries (end == next start) do not overlap.
-
-    Shared by the serializer's fast-path validation and the viewset's
-    lock-guarded re-check so the two never disagree on what "overlap" means.
-    """
-    slots = AvailabilitySlot.objects.filter(
-        practitioner=practitioner,
-        day_of_week=day_of_week,
-        start_time__lt=end_time,
-        end_time__gt=start_time,
-    )
-    if exclude_pk is not None:
-        slots = slots.exclude(pk=exclude_pk)
-    return slots
-
 
 class AvailabilitySlotSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
-        practitioner = resolve_field(self, attrs, "practitioner")
-        day_of_week = resolve_field(self, attrs, "day_of_week")
         start_time = resolve_field(self, attrs, "start_time")
         end_time = resolve_field(self, attrs, "end_time")
 
         validate_clinic_match(self, attrs, "practitioner", "Availability slot clinic must match the practitioner clinic.")
         if start_time and end_time and end_time <= start_time:
             raise serializers.ValidationError({"end_time": "End time must be after start time."})
-        # Fast-path check for a friendly 400 in the common, uncontended case. This
-        # is NOT authoritative: two concurrent requests can both pass it before
-        # either row commits. AvailabilitySlotViewSet re-runs the same check under
-        # a per-practitioner row lock, which is where the race is actually closed.
-        if practitioner and day_of_week is not None and start_time and end_time:
-            overlapping = overlapping_availability_slots(
-                practitioner,
-                day_of_week,
-                start_time,
-                end_time,
-                exclude_pk=self.instance.pk if self.instance else None,
-            )
-            if overlapping.exists():
-                raise serializers.ValidationError(SLOT_OVERLAP_ERROR)
+        # Not authoritative under concurrency: AvailabilitySlotViewSet re-runs this
+        # under a per-practitioner row lock, which is where the race is closed.
+        self.check_overlap(attrs)
         return attrs
+
+    def check_overlap(self, attrs):
+        """Reject a [start_time, end_time) window that overlaps another slot for the
+        same practitioner and day. Touching boundaries do not overlap."""
+        practitioner = resolve_field(self, attrs, "practitioner")
+        # Not resolve_field: its `or` fallback would drop Monday (day_of_week=0).
+        day_of_week = attrs["day_of_week"] if "day_of_week" in attrs else getattr(self.instance, "day_of_week", None)
+        start_time = resolve_field(self, attrs, "start_time")
+        end_time = resolve_field(self, attrs, "end_time")
+        if not (practitioner and day_of_week is not None and start_time and end_time):
+            return
+        overlapping = AvailabilitySlot.objects.filter(
+            practitioner=practitioner,
+            day_of_week=day_of_week,
+            start_time__lt=end_time,
+            end_time__gt=start_time,
+        )
+        if self.instance:
+            overlapping = overlapping.exclude(pk=self.instance.pk)
+        if overlapping.exists():
+            raise serializers.ValidationError("This slot overlaps with an existing availability slot for this practitioner.")
 
     class Meta:
         model = AvailabilitySlot

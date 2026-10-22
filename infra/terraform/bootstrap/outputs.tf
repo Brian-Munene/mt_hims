@@ -1,11 +1,8 @@
-output "resource_group_name" {
-  value = azurerm_resource_group.tfstate.name
+output "project_ids" {
+  value = { for env, p in google_project.env : env => p.project_id }
 }
 
-output "storage_account_name" {
-  value = azurerm_storage_account.tfstate.name
-}
-
-output "container_name" {
-  value = azurerm_storage_container.tfstate.name
+output "state_bucket" {
+  description = "Must match `bucket` in environments/*/backend.tf."
+  value       = google_storage_bucket.tfstate.name
 }

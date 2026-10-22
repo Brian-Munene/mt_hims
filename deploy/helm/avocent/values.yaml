@@ -114,8 +114,8 @@ postgres:
   storageClassName: ""
   host: ""
   port: 5432
-  # e.g. "require" against a managed Postgres that mandates TLS (Azure
-  # Database for PostgreSQL Flexible Server, etc). Empty leaves psycopg's own
+  # e.g. "require" against a managed Postgres that mandates TLS (Cloud SQL
+  # with ssl_mode ENCRYPTED_ONLY, etc). Empty leaves psycopg's own
   # default (opportunistic TLS) alone — fine for the in-cluster/local case.
   sslMode: ""
   resources: {}
@@ -126,7 +126,27 @@ redis:
   internal: true
   image: redis:7-alpine
   url: ""
+  # PEM of the CA that signed the external Redis server's TLS cert (e.g.
+  # Memorystore's server CA). When set it's mounted at /etc/redis-ca/ca.pem and
+  # Django/Celery verify the server against it (REDIS_SSL_CA_CERTS).
+  caCert: ""
   resources: {}
+
+# Kubernetes ServiceAccount for the Django pods (web, worker, beat, migrate).
+# On GKE, annotate it with iam.gke.io/gcp-service-account so the pods get the
+# app's GCP identity through Workload Identity (no key files).
+serviceAccount:
+  create: false
+  # Defaults to <fullname>-backend. Must match the Kubernetes SA name bound in
+  # Terraform (backend_service_account).
+  name: ""
+  annotations: {}
+
+storage:
+  # GCS bucket for uploaded media (patient documents, signatures, photos).
+  # Empty keeps Django's FileSystemStorage — pod-local and lost on restart, so
+  # only acceptable for local clusters.
+  gcsBucket: ""
 
 ingress:
   enabled: false

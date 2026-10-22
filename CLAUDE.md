@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 avocent-backend/   Django 5.2 REST API (Python 3.12)
 avocent-frontend/  Next.js 16 App Router frontend (TypeScript)
 deploy/helm/       Helm chart — application layer on Kubernetes
-infra/terraform/   Terraform — Azure cloud infrastructure (AKS, networking, AD)
+infra/terraform/   Terraform — GCP cloud infrastructure (GKE, Cloud SQL, Memorystore, WIF)
 ```
 
 ## Backend
@@ -96,7 +96,9 @@ helm install avocent-local deploy/helm/avocent -n avocent --create-namespace -f 
 ```
 `beat` is pinned to 1 replica (Recreate). For production: external Postgres (`postgres.internal: false`) + ingress with cert-manager.
 
-**Terraform** (`infra/terraform/`) — provisions AKS, networking, and Azure AD on top of which Helm runs. `bootstrap/` creates the tfstate backend first; `environments/staging|production/` hold the per-env configs.
+**Terraform** (`infra/terraform/`) — provisions GKE (`africa-south1`), private-IP Cloud SQL + Memorystore, Secret Manager, a GCS media bucket, and GitHub Actions Workload Identity Federation, on top of which Helm runs. `bootstrap/` creates the per-env GCP projects + tfstate bucket first; `environments/staging|production/` hold the per-env configs. Runbook: `infra/terraform/README.md`. Moved from Azure AKS in Oct 2026 (`infra/GCP_MIGRATION.md`; old code at tag `azure-final`).
+
+**Media storage** — when `GS_BUCKET_NAME` is set, uploads go to GCS via `django-storages` (signed URLs, `file_overwrite=False`); otherwise local `FileSystemStorage`. **Redis TLS** — `REDIS_SSL_CA_CERTS` (mounted by the chart from `redis.caCert`) configures the Django cache, Celery broker and result backend together.
 
 ## Spec & direction check
 

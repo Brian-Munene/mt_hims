@@ -1,21 +1,25 @@
-# Staging overlay for AKS. Non-secret values only — CI (.github/workflows/deploy-staging.yml)
+# Staging overlay for GKE. Non-secret values only — CI (.github/workflows/deploy-staging.yml)
 # supplies django.secretKey / postgres.password / django.fieldEncryptionKey /
-# django.apiEncryption.key / redis.url / email.password from the staging Key Vault
-# at deploy time via a generated values file, never committed here.
+# django.apiEncryption.key / redis.url / redis.caCert / email.password from the
+# staging project's Secret Manager at deploy time via a generated values file,
+# never committed here.
+#
+# REPLACE-WITH-* placeholders come from `terraform output` in
+# infra/terraform/environments/staging (see its next_steps output).
 #
 #   helm upgrade --install avocent-staging ./deploy/helm/avocent \
 #     -n avocent-staging \
 #     -f deploy/helm/avocent/values.yaml \
 #     -f deploy/helm/avocent/values-staging.yaml \
-#     -f <secrets file generated from Key Vault> \
+#     -f <secrets file generated from Secret Manager> \
 #     --set image.backend.tag=<git-sha> --set image.frontend.tag=<git-sha>
 
 image:
   backend:
-    repository: acravocent.azurecr.io/avocent-backend
+    repository: africa-south1-docker.pkg.dev/avocent-hims-staging/avocent/avocent-backend
     pullPolicy: IfNotPresent
   frontend:
-    repository: acravocent.azurecr.io/avocent-frontend
+    repository: africa-south1-docker.pkg.dev/avocent-hims-staging/avocent/avocent-frontend
     pullPolicy: IfNotPresent
 
 web:
@@ -40,8 +44,7 @@ frontend:
   resources:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {cpu: 500m, memory: 512Mi}
-  # Placeholder until the ingress-nginx LB IP is captured (see plan phase 4)
-  # and the nip.io hostnames below are finalized.
+  # nip.io until the real domain is registered (infra/GCP_MIGRATION.md step 8).
   publicApiUrl: "https://api.REPLACE-WITH-LB-IP.nip.io"
 
 django:
@@ -58,16 +61,24 @@ django:
 
 postgres:
   internal: false
-  # Set by Terraform output (infra/terraform/environments/staging) — the
-  # Flexible Server's FQDN.
-  host: "REPLACE-WITH-STAGING-POSTGRES-HOST"
+  # Cloud SQL private IP — terraform output postgres_private_ip.
+  host: "REPLACE-WITH-STAGING-POSTGRES-IP"
   port: 5432
   sslMode: require
 
 redis:
   internal: false
-  # url is intentionally omitted — it embeds the access key, so it's supplied
-  # at deploy time from Key Vault (rediss://<host>:6380/0?...).
+  # url (embeds the AUTH string) and caCert are supplied at deploy time from
+  # Secret Manager (rediss://:<auth>@<ip>:6378/0).
+
+serviceAccount:
+  create: true
+  name: avocent-backend # must match backend_service_account in Terraform
+  annotations:
+    iam.gke.io/gcp-service-account: avocent-app@avocent-hims-staging.iam.gserviceaccount.com
+
+storage:
+  gcsBucket: avocent-hims-staging-media
 
 email:
   configured: true

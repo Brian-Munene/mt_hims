@@ -60,6 +60,13 @@ class APIEncryptionMiddleware:
                 status=400,
             )
 
+        if len(plaintext) > settings.API_JSON_MAX_BYTES:
+            # Same limit and status as core.parsers.SafeJSONParser on the plaintext path.
+            return JsonResponse(
+                {"detail": "Request body is too large.", "code": "payload_too_large"},
+                status=413,
+            )
+
         request._body = plaintext
         request.META["CONTENT_TYPE"] = "application/json"
         request.META["CONTENT_LENGTH"] = str(len(plaintext))

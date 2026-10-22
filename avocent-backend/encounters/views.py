@@ -1,4 +1,6 @@
-from django.db import transaction
+from contextlib import contextmanager
+
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from drf_spectacular.utils import OpenApiExample, extend_schema, extend_schema_view
@@ -9,10 +11,13 @@ from rest_framework.response import Response
 from core.api import ClinicScopedModelViewSet
 from encounters.models import Appointment, AvailabilitySlot, Encounter
 from encounters.serializers import (
+    APPOINTMENT_CONFLICT_ERROR,
+    APPOINTMENT_UNIQUE_CONSTRAINT,
     SLOT_OVERLAP_ERROR,
     AppointmentSerializer,
     AvailabilitySlotSerializer,
     EncounterSerializer,
+    conflicting_appointments,
     overlapping_availability_slots,
 )
 from encounters.services import schedule_appointment_reminder
@@ -74,6 +79,22 @@ class AvailabilitySlotViewSet(ClinicScopedModelViewSet):
             save(serializer)
 
 
+@contextmanager
+def _appointment_slot_guard():
+    """Turn a lost double-booking race into the same 400 the serializer gives.
+
+    The savepoint keeps the surrounding transaction usable after the
+    IntegrityError (tests, ATOMIC_REQUESTS)."""
+    try:
+        with transaction.atomic():
+            yield
+    except IntegrityError as exc:
+        diag = getattr(exc.__cause__, "diag", None)
+        if getattr(diag, "constraint_name", None) != APPOINTMENT_UNIQUE_CONSTRAINT:
+            raise
+        raise drf_serializers.ValidationError({"scheduled_time": [APPOINTMENT_CONFLICT_ERROR]}) from exc
+
+
 @extend_schema_view(
     list=extend_schema(
         tags=["Appointments & Encounters"],
@@ -128,8 +149,13 @@ class AppointmentViewSet(ClinicScopedModelViewSet):
     ordering_fields = ("created_at", "updated_at", "scheduled_time")
 
     def perform_create(self, serializer):
-        super().perform_create(serializer)
+        with _appointment_slot_guard():
+            super().perform_create(serializer)
         schedule_appointment_reminder(serializer.instance)
+
+    def perform_update(self, serializer):
+        with _appointment_slot_guard():
+            super().perform_update(serializer)
 
     @extend_schema(
         tags=["Appointments & Encounters"],
@@ -149,9 +175,15 @@ class AppointmentViewSet(ClinicScopedModelViewSet):
         if new_time < timezone.now():
             raise drf_serializers.ValidationError({"scheduled_time": "Rescheduled time cannot be in the past."})
 
+        if appointment.is_active and conflicting_appointments(
+            appointment.practitioner, new_time, exclude_pk=appointment.pk
+        ).exists():
+            raise drf_serializers.ValidationError({"scheduled_time": [APPOINTMENT_CONFLICT_ERROR]})
+
         appointment.scheduled_time = new_time
         appointment.status = "scheduled"
-        appointment.save(update_fields=["scheduled_time", "status", "updated_at"])
+        with _appointment_slot_guard():
+            appointment.save(update_fields=["scheduled_time", "status", "updated_at"])
         schedule_appointment_reminder(appointment)
         return Response(AppointmentSerializer(appointment, context={"request": request}).data)
 

@@ -2,13 +2,10 @@ import pyotp
 from django.conf import settings
 from django.contrib.auth.models import update_last_login
 from django.contrib.auth.tokens import default_token_generator
-from django.utils import timezone
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from drf_spectacular.utils import OpenApiExample, extend_schema, extend_schema_view
 from rest_framework import generics, status
-from rest_framework.authtoken.models import Token
-from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenObtainSerializer
@@ -45,60 +42,6 @@ class CurrentUserAPIView(generics.RetrieveAPIView):
 
     def get_object(self):
         return self.request.user
-
-
-@extend_schema(
-    tags=["Authentication"],
-    summary="Log in with DRF token",
-    description="Authenticate with email and password, then issue a DRF token for sessionless API access.",
-    examples=[
-        OpenApiExample(
-            "Token Login Request",
-            value={"username": "doctor@example.com", "password": "secret123"},
-            request_only=True,
-        ),
-        OpenApiExample(
-            "Token Login Response",
-            value={"token": "0d7c...", "user": {"id": "uuid", "email": "doctor@example.com", "role_names": ["Doctor"]}},
-            response_only=True,
-            status_codes=["200"],
-        ),
-        OpenApiExample(
-            "Token Login Error",
-            value={"non_field_errors": ["Unable to log in with provided credentials."]},
-            response_only=True,
-            status_codes=["400"],
-        ),
-    ],
-)
-class LoginAPIView(ObtainAuthToken):
-    def post(self, request, *args, **kwargs):
-        response = super().post(request, *args, **kwargs)
-        token = Token.objects.select_related("user").get(key=response.data["token"])
-        return Response(
-            {
-                "token": token.key,
-                "user": UserSerializer(token.user, context={"request": request}).data,
-            },
-            status=status.HTTP_200_OK,
-        )
-
-
-@extend_schema(
-    tags=["Authentication"],
-    summary="Log out current user",
-    description="Invalidate the current user's DRF token and end API token access for that token.",
-    responses={204: EmptySerializer},
-)
-class LogoutAPIView(generics.GenericAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = EmptySerializer
-
-    def post(self, request, *args, **kwargs):
-        Token.objects.filter(user=request.user).delete()
-        request.user.last_login = timezone.now()
-        request.user.save(update_fields=["last_login"])
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class TwoFactorTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -312,7 +255,6 @@ class PasswordResetConfirmAPIView(generics.GenericAPIView):
 
         user.set_password(serializer.validated_data["new_password"])
         user.save(update_fields=["password"])
-        Token.objects.filter(user=user).delete()
 
         return Response({"detail": "Password has been reset."}, status=status.HTTP_200_OK)
 

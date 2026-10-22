@@ -92,7 +92,6 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "rest_framework.authtoken",
     "rest_framework",
     "drf_spectacular",
     "django_filters",
@@ -197,9 +196,6 @@ AUTH_USER_MODEL = "users.User"
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
-        "rest_framework.authentication.TokenAuthentication",
-        "rest_framework.authentication.SessionAuthentication",
-        "rest_framework.authentication.BasicAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
@@ -220,7 +216,7 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "TAGS": [
-        {"name": "Authentication", "description": "Login, logout, token issuance, and current-user endpoints."},
+        {"name": "Authentication", "description": "JWT issuance, two-factor verification, password reset, and current-user endpoints."},
         {"name": "User Administration", "description": "Users, roles, practitioner profiles, and role assignments."},
         {"name": "Patient Records", "description": "Patient demographics, identifiers, allergies, and chronic conditions."},
         {"name": "Bookings & Flow", "description": "Operational patient journey from arrival and triage through billing and checkout."},

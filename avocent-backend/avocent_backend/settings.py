@@ -253,6 +253,16 @@ CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_ALWAYS_EAGER = _get_bool_env("CELERY_TASK_ALWAYS_EAGER", default=False)
 CELERY_TASK_EAGER_PROPAGATES = _get_bool_env("CELERY_TASK_EAGER_PROPAGATES", default=True)
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+# Publishing happens inside web requests (e.g. appointment reminders). With the defaults, an
+# unreachable broker held a request for ~19s before failing; fail fast so callers can degrade.
+CELERY_BROKER_CONNECTION_TIMEOUT = float(_get_env("CELERY_BROKER_CONNECTION_TIMEOUT", "2"))
+CELERY_BROKER_TRANSPORT_OPTIONS = {"socket_connect_timeout": CELERY_BROKER_CONNECTION_TIMEOUT}
+CELERY_TASK_PUBLISH_RETRY_POLICY = {
+    "max_retries": 1,
+    "interval_start": 0,
+    "interval_step": 0.5,
+    "interval_max": 0.5,
+}
 
 # `celery`/`redis` being importable (core.tasking.CELERY_AVAILABLE) doesn't mean a real broker is
 # reachable: without REDIS_URL, CELERY_BROKER_URL falls back to the in-process "memory://" transport,

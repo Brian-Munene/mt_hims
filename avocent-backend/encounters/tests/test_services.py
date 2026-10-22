@@ -22,9 +22,12 @@ class EncounterServiceTests(ClinicAPIFixtureMixin, TestCase):
             status="scheduled",
         )
 
-        scheduled = schedule_appointment_reminder(appointment)
+        with self.captureOnCommitCallbacks(execute=True) as callbacks:
+            scheduled = schedule_appointment_reminder(appointment)
+            apply_async_mock.assert_not_called()
 
         self.assertTrue(scheduled)
+        self.assertEqual(len(callbacks), 1)
         apply_async_mock.assert_called_once()
 
     @patch("encounters.services.send_appointment_reminder.apply_async")

@@ -28,6 +28,7 @@ from users.serializers import (
     UserRoleSerializer,
     UserSerializer,
 )
+from users.jwt import revoke_all_refresh_tokens
 from users.two_factor import issue_challenge_token, resolve_challenge_token
 
 
@@ -255,6 +256,7 @@ class PasswordResetConfirmAPIView(generics.GenericAPIView):
 
         user.set_password(serializer.validated_data["new_password"])
         user.save(update_fields=["password"])
+        revoke_all_refresh_tokens(user)
 
         return Response({"detail": "Password has been reset."}, status=status.HTTP_200_OK)
 

@@ -22,6 +22,17 @@ class Appointment(CoreModel):
     encounter_type = models.CharField(max_length=20, choices=ENCOUNTER_TYPE_CHOICES, default="in_person")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="scheduled")
 
+    class Meta:
+        constraints = [
+            # A practitioner can't hold two live bookings at the same instant. Cancelled,
+            # completed and soft-deleted rows are excluded so the slot can be rebooked.
+            models.UniqueConstraint(
+                fields=["practitioner", "scheduled_time"],
+                condition=models.Q(status="scheduled", is_active=True),
+                name="uniq_active_appointment_per_practitioner_time",
+            ),
+        ]
+
 
 class AvailabilitySlot(CoreModel):
     DAY_OF_WEEK_CHOICES = [

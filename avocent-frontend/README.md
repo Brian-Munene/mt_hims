@@ -2,6 +2,9 @@
 
 Next.js 16 App Router frontend for the Avocent Health Centre HIMS and telemedicine platform.
 
+> This is Next.js 16, which has breaking changes from earlier versions. Read the relevant guide in
+> `node_modules/next/dist/docs/` before writing Next.js code (see [`AGENTS.md`](AGENTS.md)).
+
 ## Stack
 
 - Next.js App Router
@@ -13,13 +16,11 @@ Next.js 16 App Router frontend for the Avocent Health Centre HIMS and telemedici
 
 ## Run locally
 
-Run the commands in this section from:
-
-`/Users/brianmunene/Desktop/Avocent Health Centre/avocent-frontend`
+From `avocent-frontend/`:
 
 1. Copy `.env.example` to `.env.local`.
 2. Update the environment values as needed.
-3. Make sure the Django API is available at `DJANGO_API_URL`.
+3. Make sure the Django API is available at `DJANGO_API_URL` (e.g. `http://localhost:8000`).
 4. Install dependencies:
 
 ```bash
@@ -33,6 +34,8 @@ npm run dev
 ```
 
 The app will be available at [http://localhost:3000](http://localhost:3000).
+
+Checks: `npx tsc --noEmit` (typecheck), `npx eslint .` (lint), `npm run build` (production build).
 
 ## End-to-end tests (frontend + backend together)
 
@@ -63,75 +66,71 @@ npm run test:e2e:report     # view the last HTML report
 
 Never run `seed_e2e_user` against a real clinic database — it creates a fixed-password Admin account (`e2e@avocent.test`, see `core/management/commands/seed_e2e_user.py`) meant only for disposable test databases.
 
-By default tests target `http://localhost:3000`; point them elsewhere with `E2E_BASE_URL` (e.g. a staging URL or a different port-forward). Tests run **serially** (one worker) by default — a native `runserver`/`next dev` pair is effectively single-threaded, so parallel test sessions queue up behind it and can trip navigation timeouts that look like flakiness but aren't; set `CI=true` once pointed at a properly scaled target (Compose/k8s/gunicorn) to run in parallel instead.
+By default tests target `http://localhost:3000`; point them elsewhere with `E2E_BASE_URL` (e.g. the GKE staging URL `https://app.<ingress-ip>.nip.io`, or a different port-forward). Tests run **serially** (one worker) by default — a native `runserver`/`next dev` pair is effectively single-threaded, so parallel test sessions queue up behind it and can trip navigation timeouts that look like flakiness but aren't; set `CI=true` once pointed at a properly scaled target (Compose/k8s/gunicorn) to run in parallel instead.
 
 ## Build for production
 
-Run the commands in this section from:
-
-`/Users/brianmunene/Desktop/Avocent Health Centre/avocent-frontend`
-
-Create the optimized production build with:
+From `avocent-frontend/`:
 
 ```bash
-npm run build
-```
-
-Start the production server with:
-
-```bash
-npm run start
+npm run build   # optimized production build
+npm run start   # serve it
 ```
 
 ## Docker
 
-### Build the Docker image
-
-Run this command from:
-
-`/Users/brianmunene/Desktop/Avocent Health Centre/avocent-frontend`
+From `avocent-frontend/`:
 
 ```bash
 docker build -t avocent-frontend .
-```
-
-### Run the Docker container
-
-Run this command from:
-
-`/Users/brianmunene/Desktop/Avocent Health Centre/avocent-frontend`
-
-```bash
 docker run --rm -p 3000:3000 --env-file .env.local avocent-frontend
 ```
 
 ### Run with Docker Compose
 
-The backend Docker setup already includes the frontend service.
-
-Run this command from:
-
-`/Users/brianmunene/Desktop/Avocent Health Centre/avocent-backend/docker`
+The backend's Docker setup already includes the frontend service. From `avocent-backend/`:
 
 ```bash
-docker compose -f compose.yml -f compose.local.yml up --build
+docker compose --env-file .env.local -f docker/compose.yml -f docker/compose.local.yml up --build
 ```
 
 This starts Django on `http://localhost:8000` and the Next.js frontend on `http://localhost:3000`.
 
+## Deployment (GKE)
+
+Staging and production run on Google Kubernetes Engine (`africa-south1`) and are deployed with the
+Helm chart at [`../deploy/helm/avocent`](../deploy/helm/avocent):
+
+- **Images:** `.github/workflows/build-and-push.yml` builds this image on every push. It's tagged with
+  the git SHA and stored in Artifact Registry.
+- **Staging** deploys automatically after a successful build on `main`.
+- **Production** deploys on a `v*` tag, after a reviewer approves.
+- **Public API URL:** the browser-facing API URL is `frontend.publicApiUrl` in
+  `values-staging.yaml` / `values-prod.yaml`. It's a `nip.io` hostname until the real domain is
+  registered.
+
+The infrastructure runbook is [`../infra/terraform/README.md`](../infra/terraform/README.md). For
+the background on the move from Azure, see [`../infra/GCP_MIGRATION.md`](../infra/GCP_MIGRATION.md).
+
 ## Auth flow
 
-- Browser submits credentials to `POST /api/auth/login`
-- Next.js exchanges them for Django JWTs
-- Tokens are stored in httpOnly cookies
-- Dashboard pages fetch data on the server with those cookies
-- Browser-side mutations should go through `src/app/api/*` route handlers
-- Self-service password reset: `/forgot-password` requests a reset email, `/reset-password` (with `uid`/`token` query params from that email) sets a new password — both proxy to the unauthenticated Django password-reset endpoints
+- The browser submits credentials to `POST /api/auth/login`.
+- Next.js exchanges them for Django JWTs.
+- **Two-factor authentication:** if the user has TOTP 2FA enabled, login returns a challenge. The
+  login form then asks for a 6-digit code, which `POST /api/auth/verify-2fa` exchanges for the
+  JWTs. Users turn 2FA on or off on the **Security** page (`/security`).
+- Tokens are stored in httpOnly cookies.
+- Dashboard pages fetch data on the server using those cookies.
+- Browser-side mutations should go through the `src/app/api/*` route handlers.
+- **Self-service password reset:** `/forgot-password` requests a reset email, and
+  `/reset-password` sets a new password (using the `uid`/`token` query params from that email).
+  Both proxy to the unauthenticated Django password-reset endpoints.
 
 ## Module structure
 
 - `src/app/(auth)` for login, logout, forgot-password, and reset-password
-- `src/app/(dashboard)` for authenticated clinic modules
+- `src/app/(dashboard)` for authenticated clinic modules (including `/security` for 2FA settings)
+- `src/app/api` for BFF route handlers that proxy to Django
 - `src/lib/api` for typed Django fetch wrappers
 - `src/lib/rbac.ts` for role checks aligned to the backend
 - `src/components` for UI primitives and domain components

@@ -1,3 +1,5 @@
+import base64
+
 import pyotp
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -172,3 +174,23 @@ class TwoFactorLoginTests(APITestCase):
         response = self.client.post(TOKEN_2FA_URL, {"challenge_token": challenge, "code": pyotp.TOTP(secret).now()})
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_2fa_user_cannot_get_credentials_from_any_password_only_route(self):
+        """Regression for #35: every route that accepts a password must stop at the 2FA challenge."""
+        self._enable_2fa()
+        password_only_attempts = [
+            ("/api/auth/login/", {"username": self.user.email, "password": "OriginalPass123"}),
+            (TOKEN_URL, {"email": self.user.email, "password": "OriginalPass123"}),
+        ]
+
+        for url, payload in password_only_attempts:
+            with self.subTest(url=url):
+                response = self.client.post(url, payload)
+                body = response.data if response.status_code != status.HTTP_404_NOT_FOUND else {}
+                self.assertNotIn("token", body)
+                self.assertNotIn("access", body)
+                self.assertNotIn("refresh", body)
+
+        credentials = base64.b64encode(f"{self.user.email}:OriginalPass123".encode()).decode()
+        response = self.client.get("/api/auth/me/", HTTP_AUTHORIZATION=f"Basic {credentials}")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

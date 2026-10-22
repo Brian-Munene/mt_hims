@@ -3,7 +3,6 @@ from django.test import override_settings
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 from rest_framework import status
-from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
 from notifications.models import EmailLog
@@ -51,8 +50,7 @@ class PasswordResetTests(APITestCase):
         )
         self.assertEqual(EmailLog.objects.count(), 0)
 
-    def test_confirm_with_valid_token_resets_password_and_revokes_existing_tokens(self):
-        Token.objects.create(user=self.user)
+    def test_confirm_with_valid_token_resets_password(self):
         uid, token = self._make_token(self.user)
 
         response = self.client.post(
@@ -63,7 +61,6 @@ class PasswordResetTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password("BrandNewPass456"))
-        self.assertFalse(Token.objects.filter(user=self.user).exists())
 
     def test_confirm_with_garbage_token_is_rejected(self):
         uid, _ = self._make_token(self.user)

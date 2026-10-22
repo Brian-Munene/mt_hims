@@ -5,8 +5,6 @@ from rest_framework_simplejwt.views import TokenRefreshView, TokenVerifyView
 from users.views import (
     CurrentUserAPIView,
     DepartmentViewSet,
-    LoginAPIView,
-    LogoutAPIView,
     PasswordResetConfirmAPIView,
     PasswordResetRequestAPIView,
     PractitionerProfileViewSet,
@@ -30,8 +28,6 @@ router.register("practitioners", PractitionerProfileViewSet, basename="practitio
 router.register("departments", DepartmentViewSet, basename="department")
 
 urlpatterns = [
-    path("login/", LoginAPIView.as_view(), name="login"),
-    path("logout/", LogoutAPIView.as_view(), name="logout"),
     path("password-reset/", PasswordResetRequestAPIView.as_view(), name="password-reset-request"),
     path("password-reset/confirm/", PasswordResetConfirmAPIView.as_view(), name="password-reset-confirm"),
     path("jwt/token/", TwoFactorTokenObtainPairView.as_view(), name="jwt-token-obtain"),

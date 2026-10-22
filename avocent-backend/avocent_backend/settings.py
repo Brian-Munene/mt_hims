@@ -71,7 +71,9 @@ SECRET_KEY = _get_env(
     "SECRET_KEY",
     "django-insecure-@5y6+tg=vi)cd!3d+6q%ssq7beykd2%fk5dg(q21i6na!&w3bp",
 )
-DEBUG = _get_bool_env("DEBUG", default=True)
+# Off unless explicitly enabled: a deploy that forgets DEBUG must not serve debug
+# pages (tracebacks, file paths, package versions) on unexpected errors (#37).
+DEBUG = _get_bool_env("DEBUG", default=False)
 ALLOWED_HOSTS = _get_list_env("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
 
 # TLS / security hardening — off by default so local dev (no reverse proxy in front) is
@@ -197,6 +199,11 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ],
+    "DEFAULT_PARSER_CLASSES": [
+        "core.parsers.SafeJSONParser",
+        "rest_framework.parsers.FormParser",
+        "rest_framework.parsers.MultiPartParser",
+    ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
@@ -236,6 +243,10 @@ SIMPLE_JWT = {
     "BLACKLIST_AFTER_ROTATION": False,
     "UPDATE_LAST_LOGIN": True,
 }
+
+# JSON request limits enforced by core.parsers.SafeJSONParser.
+API_JSON_MAX_BYTES = int(_get_env("API_JSON_MAX_BYTES", str(2 * 1024 * 1024)))
+API_JSON_MAX_DEPTH = int(_get_env("API_JSON_MAX_DEPTH", "32"))
 
 API_ENCRYPTION_ENABLED = _get_bool_env("API_ENCRYPTION_ENABLED", default=False)
 API_ENCRYPTION_ENFORCE = _get_bool_env("API_ENCRYPTION_ENFORCE", default=False)

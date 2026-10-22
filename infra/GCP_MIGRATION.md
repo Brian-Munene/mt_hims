@@ -9,6 +9,22 @@ position doesn't change.
 **What doesn't change:** the Helm chart templates, cert-manager + `ClusterIssuer`s, ingress-nginx,
 Dockerfiles, and the Django/Next.js code (apart from the optional media-storage fix in Step 6).
 
+## Status (2026-10-22)
+
+| Step | State |
+|---|---|
+| 0 Decisions | ✅ Recorded below |
+| 2 GCP setup | ✅ Automated in `infra/terraform/bootstrap` (projects `avocent-hims-staging` / `avocent-hims-prod`, billing `0172CC-2CEBBF-97A92F`). Run it yourself. |
+| 3 Terraform | ✅ Written and validated (`fmt` + `validate`, all three roots). **Not applied yet.** |
+| 4 GitHub Actions | ✅ Switched to Workload Identity Federation (actionlint clean) |
+| 5 Helm values | ✅ Artifact Registry images, ServiceAccount, Redis CA mount. IP placeholders are filled from `terraform output`. |
+| 6 Media → GCS | ✅ `django-storages[google]`, signed URLs, no overwrites |
+| 7 Data migration | ⏭️ Skipped (no data) |
+| 8–9 Launch, decommission Azure | ⏳ After `terraform apply` |
+
+**Runbook:** `infra/terraform/README.md`, which includes a rough cost table. Staging is about
+$220/month and production about $900/month, so apply staging only until production is needed.
+
 ---
 
 ## 0. Decisions (recorded 2026-10-22)
@@ -50,29 +66,14 @@ Staging `Standard_D2s_v5` ×2 → `e2-standard-2` ×2. Prod Postgres `GP_Standar
 
 ---
 
-## 2. GCP account setup (one-time, manual)
+## 2. GCP account setup
 
-```bash
-# 1. Create a billing account and two projects (separate projects = hard isolation, like separate RGs/clusters today)
-gcloud projects create avocent-staging   --name="Avocent Staging"
-gcloud projects create avocent-prod      --name="Avocent Production"
-gcloud billing projects link avocent-staging --billing-account=XXXXXX-XXXXXX-XXXXXX
-gcloud billing projects link avocent-prod    --billing-account=XXXXXX-XXXXXX-XXXXXX
+Automated: `infra/terraform/bootstrap` creates both projects, links billing account
+`0172CC-2CEBBF-97A92F`, turns on every API, and creates the state bucket. The only manual
+prerequisite, `gcloud auth application-default login`, is done.
 
-# 2. Enable APIs in each project
-for p in avocent-staging avocent-prod; do
-  gcloud services enable --project "$p" \
-    container.googleapis.com sqladmin.googleapis.com redis.googleapis.com \
-    artifactregistry.googleapis.com secretmanager.googleapis.com \
-    servicenetworking.googleapis.com compute.googleapis.com \
-    iam.googleapis.com iamcredentials.googleapis.com sts.googleapis.com
-done
-
-# 3. Local auth for Terraform
-gcloud auth application-default login
-```
-
-- Set a **budget alert** on the billing account.
+- **Budget alert:** not set (test project, no budget yet). Read the cost table in
+  `infra/terraform/README.md` before applying, and destroy staging when it's not in use.
 - Accept the Google Cloud **Data Processing Addendum** in the console, and record GCP as a
   processor in the compliance docs (Kenya DPA 2019 / ODPC registration).
 - Confirm that Cloud SQL, Memorystore and GKE are all offered in `africa-south1` for the tiers you
@@ -307,10 +308,12 @@ problems, `terraform destroy` may not be possible.
 
 - [x] Client sign-off on leaving Azure; `spec/plan.md` updated
 - [x] Decisions recorded (no data, domain later, GKE Standard, Redis TLS on, media → GCS)
-- [ ] GCP projects, billing, budget alerts, APIs, DPA
-- [ ] Terraform rewritten; `bootstrap` + staging applied
-- [ ] Workflows switched to WIF; staging deploys from `main`
-- [ ] Media moved to GCS
+- [x] `gcloud` ADC login; billing account and Let's Encrypt email provided
+- [x] Terraform rewritten (bootstrap automates projects/billing/APIs)
+- [x] Workflows switched to WIF
+- [x] Media moved to GCS (code + Terraform)
+- [ ] Accept the Google Cloud DPA in the console
+- [ ] `bootstrap` + staging applied; GitHub variables set; staging deploys from `main`
 - [ ] Staging e2e green on GKE
 - [ ] Prod applied on nip.io; smoke tests pass; `FIELD_ENCRYPTION_KEY` backed up offline
 - [ ] Azure resources removed / subscription cancelled; docs updated

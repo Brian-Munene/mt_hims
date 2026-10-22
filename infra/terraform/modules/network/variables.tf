@@ -1,29 +1,25 @@
 variable "name_prefix" {
-  description = "Prefix for resource names, e.g. avocent-staging."
-  type        = string
-}
-
-variable "resource_group_name" {
   type = string
 }
 
-variable "location" {
+variable "region" {
   type = string
 }
 
-variable "address_space" {
-  description = "VNet CIDR."
+variable "nodes_cidr" {
+  description = "Primary range of the GKE subnet (node IPs)."
   type        = string
-  default     = "10.10.0.0/16"
+  default     = "10.10.0.0/20"
 }
 
-variable "aks_subnet_cidr" {
-  description = "Subnet CIDR for the AKS node pool."
+variable "pods_cidr" {
+  description = "Secondary range for pod IPs."
   type        = string
-  default     = "10.10.1.0/24"
+  default     = "10.11.0.0/16"
 }
 
-variable "tags" {
-  type    = map(string)
-  default = {}
+variable "services_cidr" {
+  description = "Secondary range for Kubernetes Service ClusterIPs."
+  type        = string
+  default     = "10.12.0.0/20"
 }

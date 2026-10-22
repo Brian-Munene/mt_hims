@@ -1,26 +1,22 @@
-resource "azurerm_resource_group" "this" {
-  name     = var.resource_group_name
-  location = var.location
-  tags     = var.tags
-}
-
-data "azurerm_client_config" "current" {}
-
-# The shared ACR lives in the staging root's state — read its outputs
-# instead of provisioning a second registry (per the plan: one shared ACR,
-# images tagged by git SHA so staging/prod never collide).
+# The shared image repository lives in the staging root's state — read its
+# outputs instead of provisioning a second registry (one shared repo, images
+# tagged by git SHA so staging/prod never collide).
 data "terraform_remote_state" "staging" {
-  backend = "azurerm"
+  backend = "gcs"
   config = {
-    resource_group_name  = "rg-avocent-tfstate"
-    storage_account_name = "avocenttfstate"
-    container_name       = "tfstate"
-    key                  = "staging.tfstate"
-    use_azuread_auth     = true
+    bucket = "avocent-hims-tfstate"
+    prefix = "staging"
   }
 }
 
-# --- App secrets, generated once and stored only in Key Vault below --------
+locals {
+  artifact_registry = data.terraform_remote_state.staging.outputs.artifact_registry
+}
+
+# --- App secrets, generated once and stored only in Secret Manager below ---
+# Once production holds real data, FIELD_ENCRYPTION_KEY must NEVER be
+# regenerated (every PHI column becomes unreadable) — never taint/-replace
+# random_id.field_encryption_key, and keep an offline copy of the value.
 
 resource "random_password" "django_secret_key" {
   length  = 64
@@ -29,6 +25,10 @@ resource "random_password" "django_secret_key" {
 
 resource "random_id" "field_encryption_key" {
   byte_length = 32
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "random_id" "api_encryption_key" {
@@ -38,102 +38,161 @@ resource "random_id" "api_encryption_key" {
 # --- Networking + cluster ----------------------------------------------
 
 module "network" {
-  source              = "../../modules/network"
-  name_prefix         = "avocent-production"
-  resource_group_name = azurerm_resource_group.this.name
-  location            = azurerm_resource_group.this.location
-  # Deliberately a different range from staging's default (10.10.0.0/16) —
-  # these VNets are never peered, but distinct ranges avoid confusion if
-  # that ever changes.
-  address_space   = "10.20.0.0/16"
-  aks_subnet_cidr = "10.20.1.0/24"
-  tags            = var.tags
+  source      = "../../modules/network"
+  name_prefix = "avocent-production"
+  region      = var.region
+  # Deliberately a different range from staging's defaults (10.10-10.12) —
+  # these VPCs are never peered, but distinct ranges avoid confusion if that
+  # ever changes.
+  nodes_cidr    = "10.20.0.0/20"
+  pods_cidr     = "10.21.0.0/16"
+  services_cidr = "10.22.0.0/20"
 }
 
-module "aks" {
-  source              = "../../modules/aks"
-  name                = "aks-avocent-production"
-  resource_group_name = azurerm_resource_group.this.name
-  location            = azurerm_resource_group.this.location
-  dns_prefix          = "avocent-production"
-  tenant_id           = data.azurerm_client_config.current.tenant_id
-  subnet_id           = module.network.aks_subnet_id
-  node_vm_size        = var.aks_node_vm_size
-  node_count          = var.aks_node_count
-  sku_tier            = "Standard" # SLA-backed control plane — this is production
-  tags                = var.tags
+module "gke" {
+  source              = "../../modules/gke"
+  name                = "gke-avocent-production"
+  project_id          = var.project_id
+  location            = var.gke_location
+  network_id          = module.network.network_id
+  subnet_name         = module.network.subnet_name
+  pods_range_name     = module.network.pods_range_name
+  services_range_name = module.network.services_range_name
+  master_cidr         = "172.16.1.0/28"
+  machine_type        = var.gke_machine_type
+  node_count          = var.gke_node_count
+  deletion_protection = true
+  labels              = var.labels
 }
 
-resource "azurerm_role_assignment" "aks_acr_pull" {
-  scope                = data.terraform_remote_state.staging.outputs.acr_id
-  role_definition_name = "AcrPull"
-  principal_id         = module.aks.kubelet_identity_object_id
+# Cross-project pull: production nodes read images from the staging project's
+# repository.
+resource "google_artifact_registry_repository_iam_member" "nodes_pull" {
+  project    = local.artifact_registry.project_id
+  location   = local.artifact_registry.location
+  repository = local.artifact_registry.name
+  role       = "roles/artifactregistry.reader"
+  member     = "serviceAccount:${module.gke.node_service_account_email}"
 }
 
 # --- Data tier -----------------------------------------------------------
 
-module "postgres" {
-  source                    = "../../modules/postgres"
+module "cloudsql" {
+  source                    = "../../modules/cloudsql"
   name                      = "psql-avocent-production"
-  resource_group_name       = azurerm_resource_group.this.name
-  location                  = azurerm_resource_group.this.location
-  sku_name                  = var.postgres_sku_name
-  allowed_ip                = module.aks.egress_ip
+  region                    = var.region
+  network_id                = module.network.network_id
+  tier                      = var.cloudsql_tier
+  disk_size_gb              = 32
   high_availability_enabled = true
-  backup_retention_days     = 35
-  tags                      = var.tags
+  backup_retention_count    = 35
+  deletion_protection       = true
+  labels                    = var.labels
+
+  depends_on = [module.network]
 }
 
-module "redis" {
-  source              = "../../modules/redis"
-  name                = "redis-avocent-production"
-  resource_group_name = azurerm_resource_group.this.name
-  location            = azurerm_resource_group.this.location
-  sku_name            = var.redis_sku_name
-  family              = "C"
-  capacity            = 1
-  allowed_ip          = module.aks.egress_ip
-  tags                = var.tags
+module "memorystore" {
+  source     = "../../modules/memorystore"
+  name       = "redis-avocent-production"
+  region     = var.region
+  network_id = module.network.network_id
+  tier       = var.redis_tier
+  labels     = var.labels
+
+  depends_on = [module.network]
 }
 
-# --- GitHub Actions OIDC identity ----------------------------------------
+# --- Media storage (patient documents, signatures, photos) — PHI -----------
+# See environments/staging/main.tf for the access model.
+
+resource "google_storage_bucket" "media" {
+  name     = "${var.project_id}-media"
+  location = var.region
+  labels   = var.labels
+
+  uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
+  force_destroy               = false
+
+  versioning {
+    enabled = true
+  }
+
+  # Deleted/overwritten files stay recoverable for 30 days.
+  soft_delete_policy {
+    retention_duration_seconds = 2592000
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "google_service_account" "app" {
+  account_id   = "avocent-app"
+  display_name = "Avocent Django pods (production)"
+}
+
+resource "google_storage_bucket_iam_member" "app_media" {
+  bucket = google_storage_bucket.media.name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.app.email}"
+}
+
+resource "google_service_account_iam_member" "app_sign_blob" {
+  service_account_id = google_service_account.app.name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:${google_service_account.app.email}"
+}
+
+resource "google_service_account_iam_member" "app_workload_identity" {
+  service_account_id = google_service_account.app.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "serviceAccount:${var.project_id}.svc.id.goog[${var.namespace}/${var.backend_service_account}]"
+
+  depends_on = [module.gke]
+}
+
+# --- GitHub Actions deploy identity (no build identity — images are built
+# once, in the staging project's registry) ----------------------------------
 
 module "github_oidc" {
   source      = "../../modules/github-oidc"
+  project_id  = var.project_id
   environment = "production"
   github_repo = var.github_repo
-  acr_id      = data.terraform_remote_state.staging.outputs.acr_id
-  aks_id      = module.aks.id
 }
 
-# --- Secrets -> Key Vault (never written to a values-*.yaml file) --------
+# --- Secrets -> Secret Manager (never written to a values-*.yaml file) ---
 
-module "keyvault" {
-  source               = "../../modules/keyvault"
-  name                 = "kv-avocent-production"
-  resource_group_name  = azurerm_resource_group.this.name
-  location             = azurerm_resource_group.this.location
-  tenant_id            = data.azurerm_client_config.current.tenant_id
-  reader_principal_ids = [module.github_oidc.object_id]
-  tags                 = var.tags
+module "secrets" {
+  source = "../../modules/secrets"
+  region = var.region
+  labels = var.labels
 
   secrets = {
     SECRET_KEY           = random_password.django_secret_key.result
     FIELD_ENCRYPTION_KEY = random_id.field_encryption_key.b64_std
     API_ENCRYPTION_KEY   = random_id.api_encryption_key.b64_std
-    DB_PASSWORD          = module.postgres.administrator_password
-    REDIS_URL            = module.redis.url
-    EMAIL_HOST_PASSWORD  = "" # fill in manually via `az keyvault secret set` once an SMTP provider is chosen
+    DB_PASSWORD          = module.cloudsql.password
+    REDIS_URL            = module.memorystore.url
+    REDIS_CA_CERT        = module.memorystore.server_ca_cert
+  }
+
+  manual_secret_ids = ["EMAIL_HOST_PASSWORD"]
+}
+
+# --- Kubernetes: app namespace, ingress + TLS ------------------------------
+
+resource "kubernetes_namespace_v1" "app" {
+  metadata {
+    name = var.namespace
   }
 }
 
-# --- Ingress + TLS ---------------------------------------------------------
-# See versions.tf for the two-step first-apply note (module.aks must exist
-# before the kubernetes/helm providers can authenticate).
-
 module "ingress" {
-  source                   = "../../modules/ingress"
-  static_ip_address        = module.aks.egress_ip
-  static_ip_resource_group = azurerm_resource_group.this.name
-  cert_manager_email       = var.cert_manager_email
+  source       = "../../modules/ingress"
+  address_name = "avocent-production-ingress"
+  region       = var.region
 }

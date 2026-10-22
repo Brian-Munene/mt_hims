@@ -16,6 +16,12 @@ data:
   REDIS_URL: {{ include "avocent.redisUrl" . | quote }}
   CELERY_BROKER_URL: {{ include "avocent.redisUrl" . | quote }}
   CELERY_RESULT_BACKEND: {{ include "avocent.redisUrl" . | quote }}
+  {{- if .Values.redis.caCert }}
+  REDIS_SSL_CA_CERTS: /etc/redis-ca/ca.pem
+  {{- end }}
+  {{- with .Values.storage.gcsBucket }}
+  GS_BUCKET_NAME: {{ . | quote }}
+  {{- end }}
   CELERY_LOG_LEVEL: {{ .Values.celery.logLevel | quote }}
   CELERY_WORKER_CONCURRENCY: {{ .Values.worker.concurrency | quote }}
   CELERY_BEAT_PIDFILE: /tmp/celerybeat.pid

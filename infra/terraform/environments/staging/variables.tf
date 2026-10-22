@@ -1,51 +1,59 @@
-variable "location" {
-  type    = string
-  default = "South Africa North"
+variable "project_id" {
+  description = "Created by infra/terraform/bootstrap."
+  type        = string
+  default     = "avocent-hims-staging"
 }
 
-variable "resource_group_name" {
+variable "region" {
   type    = string
-  default = "rg-avocent-staging"
+  default = "africa-south1"
+}
+
+variable "gke_location" {
+  description = "A zone = zonal cluster: one free-tier-eligible control plane, cheapest option for staging."
+  type        = string
+  default     = "africa-south1-a"
 }
 
 variable "github_repo" {
-  description = "owner/repo — used to scope the GitHub OIDC federated credential's subject."
+  description = "owner/repo — the only repository allowed to federate into this project."
   type        = string
   default     = "Brian-Munene/mt_hims"
 }
 
-variable "cert_manager_email" {
-  description = "Email registered with Let's Encrypt for certificate expiry notices."
+variable "namespace" {
+  description = "Kubernetes namespace of the Helm release (must match deploy-staging.yml)."
   type        = string
+  default     = "avocent-staging"
 }
 
-variable "acr_name" {
-  description = "Shared ACR — created here (staging root), read by production via terraform_remote_state."
+variable "backend_service_account" {
+  description = "Kubernetes ServiceAccount the Django pods run as (serviceAccount.name in values-staging.yaml)."
   type        = string
-  default     = "acravocent"
+  default     = "avocent-backend"
 }
 
-variable "postgres_sku_name" {
+variable "gke_machine_type" {
   type    = string
-  default = "B_Standard_B1ms" # burstable, cheapest tier — fine for staging
+  default = "e2-standard-2"
 }
 
-variable "redis_sku_name" {
-  type    = string
-  default = "Basic"
-}
-
-variable "aks_node_vm_size" {
-  type    = string
-  default = "Standard_D2s_v5"
-}
-
-variable "aks_node_count" {
+variable "gke_node_count" {
   type    = number
   default = 2
 }
 
-variable "tags" {
+variable "cloudsql_tier" {
+  type    = string
+  default = "db-g1-small" # shared core, cheapest tier — fine for staging
+}
+
+variable "redis_tier" {
+  type    = string
+  default = "BASIC"
+}
+
+variable "labels" {
   type = map(string)
   default = {
     environment = "staging"

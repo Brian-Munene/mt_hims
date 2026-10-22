@@ -9,11 +9,16 @@ on:
     branches: ["**"]
 
 permissions:
-  id-token: write # required for azure/login's OIDC token exchange
+  id-token: write # required for google-github-actions/auth's OIDC token exchange
   contents: read
 
 env:
-  ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }} # e.g. acravocent.azurecr.io — repo variable, not a secret
+  # Repo variables (not secrets) — values come from `terraform output next_steps`
+  # in infra/terraform/environments/staging:
+  #   IMAGE_REPO             e.g. africa-south1-docker.pkg.dev/avocent-hims-staging/avocent
+  #   GCP_BUILD_WIF_PROVIDER Workload Identity provider resource name
+  #   GCP_BUILD_SA           push-only service account on the image repository
+  IMAGE_REPO: ${{ vars.IMAGE_REPO }}
 
 jobs:
   build-and-push:
@@ -21,15 +26,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Azure login (OIDC)
-        uses: azure/login@v2
+      - name: Google Cloud auth (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
         with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          workload_identity_provider: ${{ vars.GCP_BUILD_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_BUILD_SA }}
 
-      - name: az acr login
-        run: az acr login --name "${ACR_LOGIN_SERVER%%.*}"
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Docker login to Artifact Registry
+        run: gcloud auth configure-docker "${IMAGE_REPO%%/*}" --quiet
 
       - uses: docker/setup-buildx-action@v3
 
@@ -40,9 +46,9 @@ jobs:
           file: avocent-backend/docker/Dockerfile
           push: true
           tags: |
-            ${{ env.ACR_LOGIN_SERVER }}/avocent-backend:${{ github.sha }}
-          cache-from: type=registry,ref=${{ env.ACR_LOGIN_SERVER }}/avocent-backend:buildcache
-          cache-to: type=registry,ref=${{ env.ACR_LOGIN_SERVER }}/avocent-backend:buildcache,mode=max
+            ${{ env.IMAGE_REPO }}/avocent-backend:${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.IMAGE_REPO }}/avocent-backend:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE_REPO }}/avocent-backend:buildcache,mode=max
 
       - name: Build and push frontend
         uses: docker/build-push-action@v6
@@ -51,6 +57,6 @@ jobs:
           file: avocent-frontend/Dockerfile
           push: true
           tags: |
-            ${{ env.ACR_LOGIN_SERVER }}/avocent-frontend:${{ github.sha }}
-          cache-from: type=registry,ref=${{ env.ACR_LOGIN_SERVER }}/avocent-frontend:buildcache
-          cache-to: type=registry,ref=${{ env.ACR_LOGIN_SERVER }}/avocent-frontend:buildcache,mode=max
+            ${{ env.IMAGE_REPO }}/avocent-frontend:${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.IMAGE_REPO }}/avocent-frontend:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE_REPO }}/avocent-frontend:buildcache,mode=max

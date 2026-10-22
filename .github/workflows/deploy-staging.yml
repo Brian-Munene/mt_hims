@@ -18,79 +18,108 @@ jobs:
     if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     # Ties this run to the GitHub Environment named "staging" — required so
-    # the federated credential's subject (repo:...:environment:staging, see
-    # infra/terraform/modules/github-oidc) actually matches and OIDC login
-    # succeeds. Configure this Environment's variables (not secrets) in repo
-    # Settings -> Environments -> staging:
-    #   AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID,
-    #   AKS_CLUSTER_NAME, AKS_RESOURCE_GROUP, KEY_VAULT_NAME, ACR_LOGIN_SERVER
+    # the OIDC token's subject (repo:...:environment:staging, see
+    # infra/terraform/modules/github-oidc) matches the deploy service
+    # account's Workload Identity binding. Configure this Environment's
+    # variables (not secrets) in repo Settings -> Environments -> staging:
+    #   GCP_PROJECT_ID, GCP_WIF_PROVIDER, GCP_DEPLOY_SA,
+    #   GKE_CLUSTER_NAME, GKE_LOCATION
     environment: staging
+    env:
+      RELEASE: avocent-staging
+      NAMESPACE: avocent-staging
+      VALUES_FILE: deploy/helm/avocent/values-staging.yaml
+      IMAGE_TAG: ${{ github.event.workflow_run.head_sha }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
-      - name: Azure login (OIDC)
-        uses: azure/login@v2
+      - name: Google Cloud auth (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
         with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
 
-      - uses: azure/setup-kubectl@v4
-      - uses: azure/setup-helm@v4
+      - uses: google-github-actions/setup-gcloud@v2
 
-      - name: Get AKS credentials
-        run: |
-          az aks get-credentials \
-            --resource-group "${{ vars.AKS_RESOURCE_GROUP }}" \
-            --name "${{ vars.AKS_CLUSTER_NAME }}" \
-            --overwrite-existing
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ vars.GKE_CLUSTER_NAME }}
+          location: ${{ vars.GKE_LOCATION }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
 
-      - name: Fetch secrets from Key Vault and build a throwaway values file
+      - uses: azure/setup-helm@v4 # cloud-agnostic despite the name — just installs helm
+
+      - name: Fetch secrets from Secret Manager and build a throwaway values file
+        env:
+          PROJECT: ${{ vars.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
-          vault="${{ vars.KEY_VAULT_NAME }}"
 
-          get_secret() {
-            local value
-            value="$(az keyvault secret show --vault-name "$vault" --name "$1" --query value -o tsv)"
-            echo "::add-mask::$value"
-            printf '%s' "$value"
+          fetch() {
+            gcloud secrets versions access latest --secret="$1" --project="$PROJECT"
           }
 
-          secret_key="$(get_secret SECRET_KEY)"
-          db_password="$(get_secret DB_PASSWORD)"
-          field_key="$(get_secret FIELD_ENCRYPTION_KEY)"
-          api_key="$(get_secret API_ENCRYPTION_KEY)"
-          redis_url="$(get_secret REDIS_URL)"
-          email_password="$(get_secret EMAIL_HOST_PASSWORD)"
+          # Must run in this shell, not inside $(...) — a workflow command
+          # echoed in a subshell is captured into the variable instead of
+          # reaching the runner. Masks line by line (multi-line values).
+          mask() {
+            while IFS= read -r line; do
+              # `if`, not `[ ] && echo`: on an empty value the && form returns
+              # 1 as the function's status and `set -e` kills the step.
+              if [ -n "$line" ]; then echo "::add-mask::$line"; fi
+            done <<< "$1"
+          }
 
-          cat > /tmp/secrets-values.yaml <<EOF
-          django:
-            secretKey: "$secret_key"
-            fieldEncryptionKey: "$field_key"
-            apiEncryption:
-              key: "$api_key"
-          postgres:
-            password: "$db_password"
-          redis:
-            url: "$redis_url"
-          email:
-            password: "$email_password"
-          EOF
+          # Plain assignments (not `export X="$(...)"`) so a failed fetch
+          # trips `set -e`.
+          SECRET_KEY="$(fetch SECRET_KEY)"
+          DB_PASSWORD="$(fetch DB_PASSWORD)"
+          FIELD_ENCRYPTION_KEY="$(fetch FIELD_ENCRYPTION_KEY)"
+          API_ENCRYPTION_KEY="$(fetch API_ENCRYPTION_KEY)"
+          REDIS_URL="$(fetch REDIS_URL)"
+          REDIS_CA_CERT="$(fetch REDIS_CA_CERT)" # not secret, no mask needed
+          # No version exists until an SMTP provider is set up by hand —
+          # deploy with it empty rather than failing.
+          EMAIL_HOST_PASSWORD="$(fetch EMAIL_HOST_PASSWORD 2>/dev/null || true)"
+
+          for v in "$SECRET_KEY" "$DB_PASSWORD" "$FIELD_ENCRYPTION_KEY" "$API_ENCRYPTION_KEY" "$REDIS_URL" "$EMAIL_HOST_PASSWORD"; do
+            mask "$v"
+          done
+          export SECRET_KEY DB_PASSWORD FIELD_ENCRYPTION_KEY API_ENCRYPTION_KEY REDIS_URL REDIS_CA_CERT EMAIL_HOST_PASSWORD
+
+          # JSON is valid YAML and json.dumps escapes everything (quotes, the
+          # multi-line CA PEM), unlike interpolating into a YAML heredoc.
+          python3 - > "$RUNNER_TEMP/secrets-values.yaml" <<'PY'
+          import json, os
+          e = os.environ
+          print(json.dumps({
+              "django": {
+                  "secretKey": e["SECRET_KEY"],
+                  "fieldEncryptionKey": e["FIELD_ENCRYPTION_KEY"],
+                  "apiEncryption": {"key": e["API_ENCRYPTION_KEY"]},
+              },
+              "postgres": {"password": e["DB_PASSWORD"]},
+              "redis": {"url": e["REDIS_URL"], "caCert": e["REDIS_CA_CERT"]},
+              "email": {"password": e["EMAIL_HOST_PASSWORD"]},
+          }))
+          PY
 
       - name: helm upgrade --install
+        # Namespace is created by Terraform (kubernetes_namespace_v1.app), so
+        # the deploy identity never needs namespace-create rights.
         run: |
-          helm upgrade --install avocent-staging deploy/helm/avocent \
-            --namespace avocent-staging --create-namespace \
+          helm upgrade --install "$RELEASE" deploy/helm/avocent \
+            --namespace "$NAMESPACE" \
             -f deploy/helm/avocent/values.yaml \
-            -f deploy/helm/avocent/values-staging.yaml \
-            -f /tmp/secrets-values.yaml \
-            --set image.backend.tag=${{ github.event.workflow_run.head_sha }} \
-            --set image.frontend.tag=${{ github.event.workflow_run.head_sha }} \
+            -f "$VALUES_FILE" \
+            -f "$RUNNER_TEMP/secrets-values.yaml" \
+            --set image.backend.tag="$IMAGE_TAG" \
+            --set image.frontend.tag="$IMAGE_TAG" \
             --wait --timeout 10m
 
       - name: Clean up throwaway values file
         if: always()
-        run: rm -f /tmp/secrets-values.yaml
+        run: rm -f "$RUNNER_TEMP/secrets-values.yaml"

@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 
 import { env } from "@/lib/env";
 import { ACCESS_TOKEN_MAX_AGE, AUTH_COOKIE_OPTIONS, REFRESH_TOKEN_MAX_AGE } from "@/lib/cookies";
-import { getCurrentUser } from "@/lib/api/auth";
+import { getCurrentUser, revokeRefreshToken } from "@/lib/api/auth";
 import type { AuthEnvelope, SessionUser } from "@/lib/types";
 
 export async function persistAuthSession(auth: AuthEnvelope) {
@@ -30,6 +30,21 @@ export async function clearAuthSession() {
   cookieStore.delete(env.accessCookieName);
   cookieStore.delete(env.refreshCookieName);
   cookieStore.delete(env.sessionCookieName);
+}
+
+// Sign-out: revoke the refresh token server-side (so a copied cookie can't keep
+// minting access tokens), then clear the cookies. Revocation is best effort --
+// an expired or already-revoked token must never block signing out.
+export async function endAuthSession() {
+  const refresh = (await cookies()).get(env.refreshCookieName)?.value;
+  if (refresh) {
+    try {
+      await revokeRefreshToken(refresh);
+    } catch {
+      // Cookies are cleared below regardless.
+    }
+  }
+  await clearAuthSession();
 }
 
 export async function getAccessToken() {

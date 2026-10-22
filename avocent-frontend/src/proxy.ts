@@ -30,7 +30,12 @@ interface RefreshedTokens {
   refresh?: string;
 }
 
-async function refreshAccessToken(refresh: string): Promise<RefreshedTokens | null> {
+// "rejected": Django says this refresh token is dead (expired, revoked or
+// already rotated) -- the session is over. "unavailable": Django couldn't be
+// reached or errored; the token may be fine, so the cookies must survive.
+type RefreshOutcome = RefreshedTokens | "rejected" | "unavailable";
+
+async function refreshAccessToken(refresh: string): Promise<RefreshOutcome> {
   try {
     const response = await fetch(new URL("/api/auth/jwt/refresh/", env.djangoApiUrl), {
       method: "POST",
@@ -38,16 +43,16 @@ async function refreshAccessToken(refresh: string): Promise<RefreshedTokens | nu
       body: JSON.stringify({ refresh }),
     });
     if (!response.ok) {
-      console.warn(`[proxy] token refresh rejected: HTTP ${response.status}`);
-      return null;
+      console.warn(`[proxy] token refresh failed: HTTP ${response.status}`);
+      return response.status === 400 || response.status === 401 ? "rejected" : "unavailable";
     }
     const data = (await response.json()) as { access?: string; refresh?: string };
-    // ROTATE_REFRESH_TOKENS is on server-side, so a new refresh token may
-    // accompany the new access token.
-    return data.access ? { access: data.access, refresh: data.refresh } : null;
+    // Refresh tokens are single-use server-side, so a new one always accompanies
+    // the new access token and must replace the cookie.
+    return data.access ? { access: data.access, refresh: data.refresh } : "unavailable";
   } catch (error) {
     console.warn(`[proxy] token refresh failed: ${error instanceof Error ? error.message : String(error)}`);
-    return null;
+    return "unavailable";
   }
 }
 
@@ -70,12 +75,15 @@ export async function proxy(request: NextRequest) {
   let refreshed: RefreshedTokens | null = null;
   let refreshFailed = false;
   if (needsFreshToken && !hasSession && refreshCookie) {
-    refreshed = await refreshAccessToken(refreshCookie);
-    if (refreshed) {
+    const outcome = await refreshAccessToken(refreshCookie);
+    if (typeof outcome === "object") {
+      refreshed = outcome;
       hasSession = true;
       request.cookies.set(env.accessCookieName, refreshed.access);
     } else {
-      refreshFailed = true;
+      // Only a definitive rejection ends the session; a backend blip (5xx,
+      // network) leaves the cookies so the next request can retry.
+      refreshFailed = outcome === "rejected";
     }
   }
 

@@ -93,6 +93,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
+    "rest_framework_simplejwt.token_blacklist",
     "drf_spectacular",
     "django_filters",
     "core",
@@ -233,9 +234,14 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
-    "BLACKLIST_AFTER_ROTATION": False,
+    "BLACKLIST_AFTER_ROTATION": True,
     "UPDATE_LAST_LOGIN": True,
+    # Enforces single use atomically; see users.jwt for why the stock serializer doesn't.
+    "TOKEN_REFRESH_SERIALIZER": "users.jwt.RotatingTokenRefreshSerializer",
 }
+# How long a just-rotated refresh token may be replayed to receive the same new pair.
+# Covers the frontend proxy's parallel refreshes; keep it short (#38).
+JWT_REFRESH_REUSE_GRACE_SECONDS = int(_get_env("JWT_REFRESH_REUSE_GRACE_SECONDS", "30"))
 
 API_ENCRYPTION_ENABLED = _get_bool_env("API_ENCRYPTION_ENABLED", default=False)
 API_ENCRYPTION_ENFORCE = _get_bool_env("API_ENCRYPTION_ENFORCE", default=False)

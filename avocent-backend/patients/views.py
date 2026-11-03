@@ -1,7 +1,9 @@
 import csv
 import io
 
+from django.db import transaction
 from django.http import HttpResponse
+from django.utils.dateparse import parse_date
 from drf_spectacular.utils import OpenApiExample, extend_schema, extend_schema_view
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -13,6 +15,12 @@ from core.api import ClinicScopedModelViewSet
 from encounters.models import Encounter
 from encounters.serializers import EncounterSerializer
 from patients.models import Allergy, ChronicCondition, Patient, PatientAlert, PatientDocument, PatientIdentifier
+
+#: Bounds on the synchronous patient CSV import: past these, the request is a
+#: data-loading job, not a form upload, and it must not tie up a worker.
+MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024
+MAX_IMPORT_ROWS = 5000
+IMPORT_CHUNK_SIZE = 500
 from patients.serializers import (
     AllergySerializer,
     ChronicConditionSerializer,
@@ -105,6 +113,13 @@ class PatientViewSet(ClinicScopedModelViewSet):
         file_obj = request.FILES.get("file")
         if not file_obj:
             return Response({"error": "No file uploaded. Send a multipart/form-data request with a 'file' field."}, status=400)
+        # A patient-registration export is thousands of rows at most; a file
+        # past these bounds is a data-loading job, not a form upload.
+        if file_obj.size > MAX_IMPORT_FILE_BYTES:
+            return Response(
+                {"error": f"File is larger than the {MAX_IMPORT_FILE_BYTES // (1024 * 1024)} MB import limit."},
+                status=400,
+            )
         try:
             decoded = file_obj.read().decode("utf-8-sig")
         except UnicodeDecodeError:
@@ -113,24 +128,47 @@ class PatientViewSet(ClinicScopedModelViewSet):
         required = {"first_name", "last_name"}
         if not required.issubset(set(reader.fieldnames or [])):
             return Response({"error": f"CSV must contain columns: {', '.join(required)}."}, status=400)
+        rows = list(reader)
+        if len(rows) > MAX_IMPORT_ROWS:
+            return Response(
+                {"error": f"File has {len(rows):,} rows; the import limit is {MAX_IMPORT_ROWS:,}."},
+                status=400,
+            )
 
+        valid_genders = {choice for choice, _ in Patient.GENDER_CHOICES}
         created, errors = 0, []
-        for i, row in enumerate(reader, start=2):
-            try:
-                Patient.objects.create(
-                    clinic=request.user.clinic,
-                    created_by=request.user,
-                    first_name=row.get("first_name", "").strip(),
-                    last_name=row.get("last_name", "").strip(),
-                    gender=row.get("gender", "unknown").strip() or "unknown",
-                    date_of_birth=row.get("date_of_birth", "").strip() or None,
-                    phone=row.get("phone", "").strip(),
-                    email=row.get("email", "").strip(),
-                    address=row.get("address", "").strip(),
+        batch: list[Patient] = []
+        with transaction.atomic():
+            for i, row in enumerate(rows, start=2):
+                gender = (row.get("gender") or "").strip() or "unknown"
+                if gender not in valid_genders:
+                    errors.append({"row": i, "error": "gender is not one of the accepted values."})
+                    continue
+                raw_dob = (row.get("date_of_birth") or "").strip()
+                date_of_birth = parse_date(raw_dob) if raw_dob else None
+                if raw_dob and date_of_birth is None:
+                    errors.append({"row": i, "error": "date_of_birth is not a valid date."})
+                    continue
+                batch.append(
+                    Patient(
+                        clinic=request.user.clinic,
+                        created_by=request.user,
+                        first_name=(row.get("first_name") or "").strip(),
+                        last_name=(row.get("last_name") or "").strip(),
+                        gender=gender,
+                        date_of_birth=date_of_birth,
+                        phone=(row.get("phone") or "").strip(),
+                        email=(row.get("email") or "").strip(),
+                        address=(row.get("address") or "").strip(),
+                    )
                 )
-                created += 1
-            except Exception as exc:
-                errors.append({"row": i, "error": str(exc)})
+                if len(batch) >= IMPORT_CHUNK_SIZE:
+                    Patient.objects.bulk_create(batch)
+                    created += len(batch)
+                    batch = []
+            if batch:
+                Patient.objects.bulk_create(batch)
+                created += len(batch)
         return Response({"created": created, "errors": errors})
 
     @extend_schema(

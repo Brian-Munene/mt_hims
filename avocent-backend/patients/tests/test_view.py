@@ -81,3 +81,49 @@ class PatientViewTests(ClinicAPIFixtureMixin, APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_import_csv_rejects_a_file_past_the_row_cap(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        from patients.views import MAX_IMPORT_ROWS
+
+        self.client.force_authenticate(self.receptionist)
+        before = Patient.objects.count()
+        body = "first_name,last_name\n" + "".join(
+            f"Patient {i},Arrival\n" for i in range(MAX_IMPORT_ROWS + 1)
+        )
+        response = self.client.post(
+            "/api/patients/patients/import-csv/",
+            {"file": SimpleUploadedFile("patients.csv", body.encode(), content_type="text/csv")},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+        self.assertIn("import limit", response.data["error"])
+        self.assertEqual(Patient.objects.count(), before)
+
+    def test_import_csv_creates_rows_and_sanitizes_bad_ones(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_authenticate(self.receptionist)
+        before = Patient.objects.count()
+        body = (
+            "first_name,last_name,gender,date_of_birth\n"
+            "Ada,Lovelace,female,1815-12-10\n"
+            "Bad,Gender,alien,\n"
+            "Bad,Date,female,not-a-date\n"
+            "Alan,Turing,male,\n"
+        )
+        response = self.client.post(
+            "/api/patients/patients/import-csv/",
+            {"file": SimpleUploadedFile("patients.csv", body.encode(), content_type="text/csv")},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data["created"], 2)
+        self.assertEqual([error["row"] for error in response.data["errors"]], [3, 4])
+        # The messages are ours, not whatever the database said.
+        for error in response.data["errors"]:
+            self.assertNotIn("Exception", error["error"])
+        self.assertEqual(Patient.objects.count(), before + 2)

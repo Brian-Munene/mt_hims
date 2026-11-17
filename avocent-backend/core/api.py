@@ -1,5 +1,9 @@
+import uuid
+
+from django.http import QueryDict
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, permissions, viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from users.access import can_access_object, get_model_permission
@@ -58,8 +62,64 @@ class ClinicScopedModelViewSet(viewsets.ModelViewSet):
         if model._meta.label_lower == "organization.clinic":
             return queryset.filter(pk=user.clinic_id)
         if hasattr(model, "clinic_id"):
+            if user.is_superuser:
+                return self._superuser_clinic_queryset(queryset, user)
             return queryset.filter(clinic_id=user.clinic_id)
         return queryset
+
+    def _superuser_clinic_queryset(self, queryset, user):
+        # Superusers are the established cross-clinic bypass (can_access_object
+        # already lets them act on any clinic's object). Detail routes are left
+        # unpinned so they can edit/delete records in whichever clinic they are
+        # viewing; list routes default to their own clinic and accept
+        # ?clinic=<uuid> to view another one.
+        if self.detail:
+            return queryset
+        requested = self.request.query_params.get("clinic")
+        if not requested:
+            return queryset.filter(clinic_id=user.clinic_id)
+        try:
+            clinic_id = uuid.UUID(requested)
+        except ValueError:
+            raise ValidationError({"clinic": ["Must be a valid clinic UUID."]})
+        return queryset.filter(clinic_id=clinic_id)
+
+    def get_serializer(self, *args, **kwargs):
+        # Fill in `clinic` before validation so clients never need to send it:
+        # users with an assigned clinic are always pinned to it (any submitted
+        # value is overwritten); superusers keep an explicit choice and only
+        # get a default when they omit it. Doing this ahead of validation means
+        # required-field checks, unique-together validators and
+        # validate_clinic_match() all see the clinic the record is saved under.
+        data = kwargs.get("data")
+        model = getattr(getattr(self.get_serializer_class(), "Meta", None), "model", None)
+        if data is not None and model is not None and any(f.name == "clinic" for f in model._meta.concrete_fields):
+            kwargs["data"] = self._with_clinic(data)
+        return super().get_serializer(*args, **kwargs)
+
+    def _with_clinic(self, data):
+        user = self.request.user
+        if user.is_superuser:
+            if data.get("clinic"):
+                return data
+            if self.action == "create":
+                clinic_id = user.clinic_id
+            elif self.action == "update":  # PUT; PATCH leaves an omitted clinic unchanged
+                clinic_id = self.get_object().clinic_id
+            else:
+                return data
+        else:
+            clinic_id = user.clinic_id
+
+        if isinstance(data, QueryDict):
+            # Rebuild instead of .copy(): QueryDict.copy() deep-copies, which
+            # breaks on uploaded files in multipart requests.
+            copied = QueryDict(mutable=True)
+            for key, values in data.lists():
+                copied.setlist(key, values)
+            copied["clinic"] = str(clinic_id) if clinic_id else ""
+            return copied
+        return {**data, "clinic": clinic_id}
 
     def perform_create(self, serializer):
         model = serializer.Meta.model

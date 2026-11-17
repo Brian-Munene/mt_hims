@@ -22,7 +22,7 @@ from pharmacy.serializers import (
     ),
 )
 class MedicationViewSet(ClinicScopedModelViewSet):
-    queryset = Medication.objects.all()
+    queryset = Medication.objects.select_related("clinic")
     serializer_class = MedicationSerializer
     filterset_fields = ("is_active",)
     search_fields = ("name", "strength", "manufacturer")

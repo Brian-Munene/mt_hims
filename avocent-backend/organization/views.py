@@ -28,8 +28,9 @@ from users.permissions import PERM_ALL
         summary="Create a clinic",
         description="Create a new clinic. Restricted to superusers only.",
         request=ClinicSerializer,
-        responses={
-            201: OpenApiExample(
+        responses={201: ClinicSerializer},
+        examples=[
+            OpenApiExample(
                 "Clinic Created",
                 value={
                     "id": "uuid",
@@ -48,7 +49,7 @@ from users.permissions import PERM_ALL
                 response_only=True,
                 status_codes=["201"],
             )
-        },
+        ],
     ),
     update=extend_schema(
         tags=["Organization - Clinics"],
@@ -68,7 +69,7 @@ from users.permissions import PERM_ALL
         tags=["Organization - Clinics"],
         summary="Delete a clinic",
         description="Delete a clinic. Restricted to superusers only.",
-        responses={204: OpenApiExample("Clinic Deleted", value={"detail": "Clinic deleted successfully."}, response_only=True, status_codes=["204"])},
+        responses={204: None},
     ),
 )
 class ClinicViewSet(ClinicScopedModelViewSet):

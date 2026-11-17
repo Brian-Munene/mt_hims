@@ -1,6 +1,8 @@
 from django.db.models import Avg, Count, Sum
 from django.utils.dateparse import parse_date
-from drf_spectacular.utils import OpenApiExample, extend_schema, extend_schema_view
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, extend_schema, extend_schema_view, inline_serializer
+from rest_framework import serializers
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -183,6 +185,26 @@ class PaymentViewSet(ClinicScopedModelViewSet):
         "for the current clinic. Optional query params: `from_date` (YYYY-MM-DD), "
         "`to_date` (YYYY-MM-DD)."
     ),
+)
+@extend_schema(
+    tags=["Billing"],
+    summary="Billing summary report",
+    parameters=[
+        OpenApiParameter("from_date", OpenApiTypes.DATE, description="Include invoices created on/after this date (YYYY-MM-DD)."),
+        OpenApiParameter("to_date", OpenApiTypes.DATE, description="Include invoices created on/before this date (YYYY-MM-DD)."),
+    ],
+    responses={
+        200: inline_serializer(
+            name="BillingReport",
+            fields={
+                "total_invoices": serializers.IntegerField(),
+                "total_revenue": serializers.CharField(),
+                "avg_invoice": serializers.CharField(),
+                "by_status": serializers.ListField(child=serializers.DictField()),
+                "by_payment_method": serializers.ListField(child=serializers.DictField()),
+            },
+        )
+    },
 )
 class BillingReportView(APIView):
     permission_classes = [IsAuthenticated, ClinicRBACPermission]

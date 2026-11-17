@@ -68,7 +68,7 @@ class PatientAlertSerializer(serializers.ModelSerializer):
 class PatientDocumentSerializer(serializers.ModelSerializer):
     file_url = serializers.SerializerMethodField(read_only=True)
 
-    def get_file_url(self, obj):
+    def get_file_url(self, obj) -> str | None:
         request = self.context.get("request")
         if obj.file and request:
             return request.build_absolute_uri(obj.file.url)

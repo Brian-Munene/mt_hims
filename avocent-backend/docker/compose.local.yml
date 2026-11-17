@@ -25,6 +25,7 @@ services:
       - ../.env.local
     environment:
       EMAIL_HOST: host.docker.internal
+      GUNICORN_RELOAD: "true"
 
   worker:
     env_file:

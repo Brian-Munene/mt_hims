@@ -16,6 +16,13 @@ fi
 python manage.py migrate --noinput
 python manage.py collectstatic --noinput
 
+# Local dev only (set in compose.local.yml): restart workers when code changes.
+# Never enable in staging/prod -- --reload is not meant for production.
+RELOAD_FLAG=""
+if [ "${GUNICORN_RELOAD:-false}" = "true" ]; then
+  RELOAD_FLAG="--reload"
+fi
+
 exec gunicorn avocent_backend.wsgi:application \
   --bind 0.0.0.0:8000 \
   --workers "${GUNICORN_WORKERS:-3}" \
@@ -26,4 +33,5 @@ exec gunicorn avocent_backend.wsgi:application \
   --access-logfile - \
   --error-logfile - \
   --max-requests "${GUNICORN_MAX_REQUESTS:-1000}" \
-  --max-requests-jitter "${GUNICORN_MAX_REQUESTS_JITTER:-100}"
+  --max-requests-jitter "${GUNICORN_MAX_REQUESTS_JITTER:-100}" \
+  ${RELOAD_FLAG}

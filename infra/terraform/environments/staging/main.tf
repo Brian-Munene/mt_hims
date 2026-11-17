@@ -1,12 +1,4 @@
-resource "azurerm_resource_group" "this" {
-  name     = var.resource_group_name
-  location = var.location
-  tags     = var.tags
-}
-
-data "azurerm_client_config" "current" {}
-
-# --- App secrets, generated once and stored only in Key Vault below --------
+# --- App secrets, generated once and stored only in Secret Manager below ---
 # Mirrors avocent-backend/core/management/commands/generate_keys.py: Django's
 # SECRET_KEY just needs high entropy, while FIELD_ENCRYPTION_KEY/
 # API_ENCRYPTION_KEY must be exactly 32 raw bytes, base64-encoded — random_id
@@ -28,105 +20,152 @@ resource "random_id" "api_encryption_key" {
 # --- Networking + cluster ----------------------------------------------
 
 module "network" {
-  source              = "../../modules/network"
-  name_prefix         = "avocent-staging"
-  resource_group_name = azurerm_resource_group.this.name
-  location            = azurerm_resource_group.this.location
-  tags                = var.tags
+  source      = "../../modules/network"
+  name_prefix = "avocent-staging"
+  region      = var.region
 }
 
-module "aks" {
-  source              = "../../modules/aks"
-  name                = "aks-avocent-staging"
-  resource_group_name = azurerm_resource_group.this.name
-  location            = azurerm_resource_group.this.location
-  dns_prefix          = "avocent-staging"
-  tenant_id           = data.azurerm_client_config.current.tenant_id
-  subnet_id           = module.network.aks_subnet_id
-  node_vm_size        = var.aks_node_vm_size
-  node_count          = var.aks_node_count
-  sku_tier            = "Free" # Standard recommended for production, not staging
-  tags                = var.tags
+module "gke" {
+  source              = "../../modules/gke"
+  name                = "gke-avocent-staging"
+  project_id          = var.project_id
+  location            = var.gke_location
+  network_id          = module.network.network_id
+  subnet_name         = module.network.subnet_name
+  pods_range_name     = module.network.pods_range_name
+  services_range_name = module.network.services_range_name
+  machine_type        = var.gke_machine_type
+  node_count          = var.gke_node_count
+  deletion_protection = false # staging is disposable
+  labels              = var.labels
 }
 
-# --- Shared container registry (staging root only — production reads this
-# via terraform_remote_state rather than creating a second registry) -------
+# --- Shared image repository (staging root only — production reads this via
+# terraform_remote_state rather than creating a second registry) -----------
 
-module "acr" {
-  source              = "../../modules/acr"
-  name                = var.acr_name
-  resource_group_name = azurerm_resource_group.this.name
-  location            = azurerm_resource_group.this.location
-  tags                = var.tags
-}
-
-resource "azurerm_role_assignment" "aks_acr_pull" {
-  scope                = module.acr.id
-  role_definition_name = "AcrPull"
-  principal_id         = module.aks.kubelet_identity_object_id
+module "artifact_registry" {
+  source         = "../../modules/artifact-registry"
+  project_id     = var.project_id
+  location       = var.region
+  reader_members = ["serviceAccount:${module.gke.node_service_account_email}"]
+  labels         = var.labels
 }
 
 # --- Data tier -----------------------------------------------------------
 
-module "postgres" {
-  source                    = "../../modules/postgres"
-  name                      = "psql-avocent-staging"
-  resource_group_name       = azurerm_resource_group.this.name
-  location                  = azurerm_resource_group.this.location
-  sku_name                  = var.postgres_sku_name
-  allowed_ip                = module.aks.egress_ip
-  high_availability_enabled = false
-  tags                      = var.tags
+module "cloudsql" {
+  source              = "../../modules/cloudsql"
+  name                = "psql-avocent-staging"
+  region              = var.region
+  network_id          = module.network.network_id
+  tier                = var.cloudsql_tier
+  deletion_protection = false
+  labels              = var.labels
+
+  depends_on = [module.network] # needs the Private Service Access peering
 }
 
-module "redis" {
-  source              = "../../modules/redis"
-  name                = "redis-avocent-staging"
-  resource_group_name = azurerm_resource_group.this.name
-  location            = azurerm_resource_group.this.location
-  sku_name            = var.redis_sku_name
-  allowed_ip          = module.aks.egress_ip
-  tags                = var.tags
+module "memorystore" {
+  source     = "../../modules/memorystore"
+  name       = "redis-avocent-staging"
+  region     = var.region
+  network_id = module.network.network_id
+  tier       = var.redis_tier
+  labels     = var.labels
+
+  depends_on = [module.network]
 }
 
-# --- GitHub Actions OIDC identity ----------------------------------------
+# --- Media storage (patient documents, signatures, photos) ---------------
+# Private bucket, accessed by the Django pods through Workload Identity (no
+# key file). Files are served via short-lived signed URLs, which the app SA
+# signs through the IAM signBlob API — hence tokenCreator on itself.
+
+resource "google_storage_bucket" "media" {
+  name     = "${var.project_id}-media"
+  location = var.region
+  labels   = var.labels
+
+  uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
+  force_destroy               = true # staging only
+
+  versioning {
+    enabled = true
+  }
+}
+
+resource "google_service_account" "app" {
+  account_id   = "avocent-app"
+  display_name = "Avocent Django pods (staging)"
+}
+
+resource "google_storage_bucket_iam_member" "app_media" {
+  bucket = google_storage_bucket.media.name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.app.email}"
+}
+
+resource "google_service_account_iam_member" "app_sign_blob" {
+  service_account_id = google_service_account.app.name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:${google_service_account.app.email}"
+}
+
+resource "google_service_account_iam_member" "app_workload_identity" {
+  service_account_id = google_service_account.app.name
+  role               = "roles/iam.workloadIdentityUser"
+  member             = "serviceAccount:${var.project_id}.svc.id.goog[${var.namespace}/${var.backend_service_account}]"
+
+  depends_on = [module.gke] # the project's workload pool exists once the cluster does
+}
+
+# --- GitHub Actions identities -------------------------------------------
 
 module "github_oidc" {
   source      = "../../modules/github-oidc"
+  project_id  = var.project_id
   environment = "staging"
   github_repo = var.github_repo
-  acr_id      = module.acr.id
-  aks_id      = module.aks.id
+
+  artifact_registry = {
+    project_id = var.project_id
+    location   = module.artifact_registry.location
+    name       = module.artifact_registry.name
+  }
 }
 
-# --- Secrets -> Key Vault (never written to a values-*.yaml file) --------
+# --- Secrets -> Secret Manager (never written to a values-*.yaml file) ---
 
-module "keyvault" {
-  source               = "../../modules/keyvault"
-  name                 = "kv-avocent-staging"
-  resource_group_name  = azurerm_resource_group.this.name
-  location             = azurerm_resource_group.this.location
-  tenant_id            = data.azurerm_client_config.current.tenant_id
-  reader_principal_ids = [module.github_oidc.object_id]
-  tags                 = var.tags
+module "secrets" {
+  source = "../../modules/secrets"
+  region = var.region
+  labels = var.labels
 
   secrets = {
     SECRET_KEY           = random_password.django_secret_key.result
     FIELD_ENCRYPTION_KEY = random_id.field_encryption_key.b64_std
     API_ENCRYPTION_KEY   = random_id.api_encryption_key.b64_std
-    DB_PASSWORD          = module.postgres.administrator_password
-    REDIS_URL            = module.redis.url
-    EMAIL_HOST_PASSWORD  = "" # fill in manually via `az keyvault secret set` once an SMTP provider is chosen
+    DB_PASSWORD          = module.cloudsql.password
+    REDIS_URL            = module.memorystore.url
+    REDIS_CA_CERT        = module.memorystore.server_ca_cert
+  }
+
+  manual_secret_ids = ["EMAIL_HOST_PASSWORD"]
+}
+
+# --- Kubernetes: app namespace, ingress + TLS ------------------------------
+# Pre-created so the deploy SA (roles/container.developer) never needs
+# namespace-create rights. See versions.tf for the two-step first-apply note.
+
+resource "kubernetes_namespace_v1" "app" {
+  metadata {
+    name = var.namespace
   }
 }
 
-# --- Ingress + TLS ---------------------------------------------------------
-# See versions.tf for the two-step first-apply note (module.aks must exist
-# before the kubernetes/helm providers can authenticate).
-
 module "ingress" {
-  source                   = "../../modules/ingress"
-  static_ip_address        = module.aks.egress_ip
-  static_ip_resource_group = azurerm_resource_group.this.name
-  cert_manager_email       = var.cert_manager_email
+  source       = "../../modules/ingress"
+  address_name = "avocent-staging-ingress"
+  region       = var.region
 }

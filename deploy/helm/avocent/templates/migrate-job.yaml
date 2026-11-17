@@ -6,11 +6,16 @@ metadata:
     {{- include "avocent.labels" . | nindent 4 }}
     app.kubernetes.io/component: migrate
   annotations:
-    # Runs once per install/upgrade, before any web/worker/beat pod rolls, so
+    # Runs once per upgrade, before any web/worker/beat pod rolls, so
     # migrations never race across multiple web replicas (entrypoint-web.sh
     # also runs `migrate --noinput` on its own boot — safe as a no-op repeat,
     # kept for the plain-docker-run path outside Helm).
-    helm.sh/hook: pre-install,pre-upgrade
+    #
+    # post-install, not pre-install: on a first install the backend
+    # ConfigMap/Secret/ServiceAccount this pod needs are ordinary release
+    # resources that don't exist yet during pre-install hooks, so the pod
+    # would sit in CreateContainerConfigError until Helm timed out.
+    helm.sh/hook: post-install,pre-upgrade
     helm.sh/hook-weight: "0"
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 spec:
@@ -22,9 +27,11 @@ spec:
         app.kubernetes.io/component: migrate
     spec:
       restartPolicy: Never
+      {{- include "avocent.backendPodSpec" . | nindent 6 }}
       containers:
         - name: migrate
           image: "{{ .Values.image.backend.repository }}:{{ .Values.image.backend.tag }}"
           imagePullPolicy: {{ .Values.image.backend.pullPolicy }}
           command: ["python", "manage.py", "migrate", "--noinput"]
           {{- include "avocent.backendEnvFrom" . | nindent 10 }}
+          {{- include "avocent.backendVolumeMounts" . | nindent 10 }}

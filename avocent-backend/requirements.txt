@@ -11,3 +11,5 @@ redis==7.4.0
 gunicorn==23.0.0
 Pillow==12.2.0
 whitenoise==6.11.0
+django-storages[google]==1.14.6
+google-cloud-storage==3.17.1

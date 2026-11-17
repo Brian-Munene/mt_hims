@@ -24,12 +24,14 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/backend-configmap.yaml") . | sha256sum }}
         checksum/secret: {{ include (print $.Template.BasePath "/backend-secret.yaml") . | sha256sum }}
     spec:
+      {{- include "avocent.backendPodSpec" . | nindent 6 }}
       containers:
         - name: beat
           image: "{{ .Values.image.backend.repository }}:{{ .Values.image.backend.tag }}"
           imagePullPolicy: {{ .Values.image.backend.pullPolicy }}
           command: ["sh", "docker/entrypoint-beat.sh"]
           {{- include "avocent.backendEnvFrom" . | nindent 10 }}
+          {{- include "avocent.backendVolumeMounts" . | nindent 10 }}
           {{- with .Values.beat.resources }}
           resources:
             {{- toYaml . | nindent 12 }}

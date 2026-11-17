@@ -1,23 +1,26 @@
-variable "location" {
-  description = "Azure region for the Terraform state storage account."
+variable "billing_account" {
+  description = "Billing account the projects are charged to (`gcloud billing accounts list`). Not a secret."
   type        = string
-  default     = "South Africa North"
+  default     = "0172CC-2CEBBF-97A92F"
 }
 
-variable "resource_group_name" {
-  description = "Resource group that holds the Terraform state storage account."
+variable "region" {
+  description = "Region for the Terraform state bucket (and, by convention, everything else)."
   type        = string
-  default     = "rg-avocent-tfstate"
+  default     = "africa-south1"
 }
 
-variable "storage_account_name" {
-  description = "Globally-unique storage account name (lowercase, 3-24 chars, no hyphens). Must be changed if the default is taken."
-  type        = string
-  default     = "avocenttfstate"
+variable "projects" {
+  description = "Environment -> globally-unique GCP project ID. One project per environment = hard isolation, like the separate resource groups/clusters on Azure."
+  type        = map(string)
+  default = {
+    staging    = "avocent-hims-staging"
+    production = "avocent-hims-prod"
+  }
 }
 
-variable "container_name" {
-  description = "Blob container that holds the .tfstate files for each environment."
+variable "state_bucket_name" {
+  description = "Globally-unique GCS bucket holding every environment's .tfstate. Must be changed if the default is taken."
   type        = string
-  default     = "tfstate"
+  default     = "avocent-hims-tfstate"
 }

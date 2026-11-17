@@ -36,6 +36,7 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/backend-configmap.yaml") . | sha256sum }}
         checksum/secret: {{ include (print $.Template.BasePath "/backend-secret.yaml") . | sha256sum }}
     spec:
+      {{- include "avocent.backendPodSpec" . | nindent 6 }}
       containers:
         - name: web
           image: "{{ .Values.image.backend.repository }}:{{ .Values.image.backend.tag }}"
@@ -45,6 +46,7 @@ spec:
             - name: http
               containerPort: 8000
           {{- include "avocent.backendEnvFrom" . | nindent 10 }}
+          {{- include "avocent.backendVolumeMounts" . | nindent 10 }}
           readinessProbe:
             httpGet:
               path: /api/schema/

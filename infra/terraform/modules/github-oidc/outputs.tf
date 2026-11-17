@@ -1,9 +1,14 @@
-output "client_id" {
-  description = "Set as the AZURE_CLIENT_ID repo/environment variable (not secret) that azure/login@v2 uses in the GitHub Actions workflow."
-  value       = azuread_application.this.client_id
+output "workload_identity_provider" {
+  description = "GCP_WIF_PROVIDER GitHub variable (full resource name). Not a secret."
+  value       = google_iam_workload_identity_pool_provider.github.name
 }
 
-output "object_id" {
-  description = "Service principal object ID — pass into the keyvault module's reader_principal_ids."
-  value       = azuread_service_principal.this.object_id
+output "deploy_service_account" {
+  description = "GCP_DEPLOY_SA GitHub variable."
+  value       = google_service_account.deploy.email
+}
+
+output "build_service_account" {
+  description = "GCP_BUILD_SA GitHub variable (null where no build identity is created)."
+  value       = try(google_service_account.build[0].email, null)
 }

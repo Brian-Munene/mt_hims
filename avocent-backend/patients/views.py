@@ -4,12 +4,13 @@ import io
 from django.http import HttpResponse
 from drf_spectacular.utils import OpenApiExample, extend_schema, extend_schema_view
 from rest_framework.decorators import action
-from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
 from clinical.models import ClinicalNote
 from clinical.serializers import ClinicalNoteSerializer
 from core.api import ClinicScopedModelViewSet
+from core.parsers import SafeJSONParser
 from encounters.models import Encounter
 from encounters.serializers import EncounterSerializer
 from patients.models import Allergy, ChronicCondition, Patient, PatientAlert, PatientDocument, PatientIdentifier
@@ -233,7 +234,7 @@ class ChronicConditionViewSet(ClinicScopedModelViewSet):
 class PatientDocumentViewSet(ClinicScopedModelViewSet):
     queryset = PatientDocument.objects.all()
     serializer_class = PatientDocumentSerializer
-    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    parser_classes = [MultiPartParser, FormParser, SafeJSONParser]
     filterset_fields = ("patient", "document_type", "is_finalised", "is_active")
     search_fields = ("title", "description", "patient__first_name", "patient__last_name")
     ordering_fields = ("created_at", "updated_at")

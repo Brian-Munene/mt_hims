@@ -15,7 +15,10 @@ permissions:
 
 jobs:
   deploy:
-    if: github.event.workflow_run.conclusion == 'success'
+    # A skipped build (GCP CI not configured yet) still concludes 'success',
+    # so also require the build's repo variable. Environment variables like
+    # GCP_WIF_PROVIDER aren't visible in a job-level `if`, hence this proxy.
+    if: github.event.workflow_run.conclusion == 'success' && vars.GCP_BUILD_WIF_PROVIDER != ''
     runs-on: ubuntu-latest
     # Ties this run to the GitHub Environment named "staging" — required so
     # the OIDC token's subject (repo:...:environment:staging, see

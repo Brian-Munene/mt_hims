@@ -22,6 +22,9 @@ env:
 
 jobs:
   build-and-push:
+    # Skip (rather than fail every push) until the staging Terraform has been
+    # applied and its outputs copied into the repo variables above.
+    if: vars.GCP_BUILD_WIF_PROVIDER != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

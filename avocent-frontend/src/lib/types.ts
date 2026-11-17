@@ -223,6 +223,8 @@ export interface Observation extends BaseResource {
 }
 
 export interface Medication extends BaseResource {
+  /** Read-only, from the API. */
+  clinic_name: string;
   name: string;
   generic_name: string;
   strength: string;

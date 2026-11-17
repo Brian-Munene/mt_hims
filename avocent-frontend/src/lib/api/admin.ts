@@ -8,9 +8,10 @@ export async function listUsers() {
   });
 }
 
-export async function listPractitioners() {
+/** `clinic` is honoured for superusers only. */
+export async function listPractitioners(clinic?: string) {
   return djangoRequest<ApiListResponse<PractitionerProfile>>("/api/auth/practitioners/", {
-    query: { ordering: "-created_at" },
+    query: { ordering: "-created_at", clinic },
   });
 }
 

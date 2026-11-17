@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { z } from "zod";
@@ -39,6 +40,11 @@ interface PrescriptionFormProps {
   encounterOptions?: FieldOption[];
   encounterId?: string;
   onSuccess?: () => void;
+  /** Superusers only: clinics to create the prescription in. Omit for everyone else (backend uses their clinic). */
+  clinicOptions?: FieldOption[];
+  defaultClinic?: string;
+  /** Navigate here after a successful create (e.g. back to a list page). */
+  redirectTo?: string;
 }
 
 function blankItem(): ItemDraft {
@@ -51,7 +57,13 @@ export function PrescriptionForm({
   encounterOptions = [],
   encounterId,
   onSuccess,
+  clinicOptions = [],
+  defaultClinic = "",
+  redirectTo,
 }: PrescriptionFormProps) {
+  const router = useRouter();
+  const [clinic, setClinic] = useState(defaultClinic);
+  const clinicPayload = clinicOptions.length && clinic ? { clinic } : {};
   const [header, setHeader] = useState<HeaderData>({
     encounter: encounterId ?? "",
     prescribed_by: "",
@@ -97,17 +109,21 @@ export function PrescriptionForm({
 
     startTransition(async () => {
       try {
-        const prescription = await createPrescription(headerResult.data);
+        const prescription = await createPrescription({ ...headerResult.data, ...clinicPayload });
         await Promise.all(
           itemResults
             .filter((r): r is { success: true; data: ItemDraft } => r.success)
             .map((r) =>
-              createPrescriptionItem({ ...r.data, prescription: prescription.id }),
+              createPrescriptionItem({ ...r.data, ...clinicPayload, prescription: prescription.id }),
             ),
         );
         setHeader({ encounter: encounterId ?? "", prescribed_by: "", status: "active", hash_signature: "" });
         setItems([blankItem()]);
         onSuccess?.();
+        if (redirectTo) {
+          router.push(redirectTo);
+          router.refresh();
+        }
       } catch (error) {
         if (error instanceof BrowserApiError) {
           const backendErrors = flattenValidationErrors(error.details);
@@ -132,6 +148,32 @@ export function PrescriptionForm({
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid gap-4 md:grid-cols-2">
+            {clinicOptions.length ? (
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-sm font-medium text-slate-800" htmlFor="rx-clinic">
+                  Clinic <span className="text-destructive">*</span>
+                </label>
+                <select
+                  id="rx-clinic"
+                  value={clinic}
+                  onChange={(e) => setClinic(e.target.value)}
+                  className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm"
+                  required
+                >
+                  {clinicOptions.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+                {clinicOptions.length > 1 ? (
+                  <p className="text-xs text-slate-500">
+                    Encounters, prescribers and medications below come from the clinic selected under &quot;Viewing
+                    clinic&quot; and must belong to the clinic chosen here.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
             {!encounterId && (
               <div className="space-y-2 md:col-span-2">
                 <label className="text-sm font-medium text-slate-800" htmlFor="rx-encounter">

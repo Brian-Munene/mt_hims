@@ -3,7 +3,6 @@ import os
 
 from django.test import override_settings
 from rest_framework import status
-from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient, APITestCase
 
 from clinical.models import ClinicalNote, Diagnosis, Observation
@@ -144,16 +143,25 @@ class UsersAndPatientsAPITestCase(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_login_endpoint_returns_token(self):
+    def test_legacy_token_login_route_is_gone(self):
         response = self.client.post(
             "/api/auth/login/",
             {"username": self.doctor.email, "password": "secret123"},
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("token", response.data)
-        self.assertTrue(Token.objects.filter(user=self.doctor).exists())
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_basic_auth_header_is_not_accepted(self):
+        credentials = base64.b64encode(f"{self.doctor.email}:secret123".encode()).decode()
+        response = self.client.get("/api/auth/me/", HTTP_AUTHORIZATION=f"Basic {credentials}")
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_drf_token_header_is_not_accepted(self):
+        response = self.client.get("/api/auth/me/", HTTP_AUTHORIZATION="Token " + "a" * 40)
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_jwt_token_endpoint_returns_access_and_refresh(self):
         response = self.client.post(
@@ -249,10 +257,10 @@ class UsersAndPatientsAPITestCase(APITestCase):
         previous_key = os.environ.get("API_ENCRYPTION_KEY")
         os.environ["API_ENCRYPTION_KEY"] = key
         try:
-            plaintext = b'{"username":"doctor-api@example.com","password":"secret123"}'
-            payload = encrypt_json_bytes(plaintext, aad=b"/api/auth/login/")
+            plaintext = b'{"email":"doctor-api@example.com","password":"secret123"}'
+            payload = encrypt_json_bytes(plaintext, aad=b"/api/auth/jwt/token/")
             response = self.client.post(
-                "/api/auth/login/",
+                "/api/auth/jwt/token/",
                 data=payload,
                 format="json",
                 HTTP_X_ENCRYPTED_PAYLOAD="1",
@@ -260,7 +268,7 @@ class UsersAndPatientsAPITestCase(APITestCase):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual(response["X-Encrypted-Payload"], "1")
             decrypted = decrypt_json_payload(response.json(), aad=b"response")
-            self.assertIn(b'"token"', decrypted)
+            self.assertIn(b'"access"', decrypted)
         finally:
             if previous_key is None:
                 os.environ.pop("API_ENCRYPTION_KEY", None)

@@ -108,8 +108,8 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "rest_framework.authtoken",
     "rest_framework",
+    "rest_framework_simplejwt.token_blacklist",
     "drf_spectacular",
     "django_filters",
     "core",
@@ -233,9 +233,6 @@ AUTH_USER_MODEL = "users.User"
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
-        "rest_framework.authentication.TokenAuthentication",
-        "rest_framework.authentication.SessionAuthentication",
-        "rest_framework.authentication.BasicAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
@@ -256,7 +253,7 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "TAGS": [
-        {"name": "Authentication", "description": "Login, logout, token issuance, and current-user endpoints."},
+        {"name": "Authentication", "description": "JWT issuance, two-factor verification, password reset, and current-user endpoints."},
         {"name": "User Administration", "description": "Users, roles, practitioner profiles, and role assignments."},
         {"name": "Patient Records", "description": "Patient demographics, identifiers, allergies, and chronic conditions."},
         {"name": "Bookings & Flow", "description": "Operational patient journey from arrival and triage through billing and checkout."},
@@ -273,9 +270,14 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     "ROTATE_REFRESH_TOKENS": True,
-    "BLACKLIST_AFTER_ROTATION": False,
+    "BLACKLIST_AFTER_ROTATION": True,
     "UPDATE_LAST_LOGIN": True,
+    # Enforces single use atomically; see users.jwt for why the stock serializer doesn't.
+    "TOKEN_REFRESH_SERIALIZER": "users.jwt.RotatingTokenRefreshSerializer",
 }
+# How long a just-rotated refresh token may be replayed to receive the same new pair.
+# Covers the frontend proxy's parallel refreshes; keep it short (#38).
+JWT_REFRESH_REUSE_GRACE_SECONDS = int(_get_env("JWT_REFRESH_REUSE_GRACE_SECONDS", "30"))
 
 API_ENCRYPTION_ENABLED = _get_bool_env("API_ENCRYPTION_ENABLED", default=False)
 API_ENCRYPTION_ENFORCE = _get_bool_env("API_ENCRYPTION_ENFORCE", default=False)
@@ -292,6 +294,16 @@ CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 if REDIS_SSL_OPTIONS:
     CELERY_BROKER_USE_SSL = REDIS_SSL_OPTIONS
     CELERY_REDIS_BACKEND_USE_SSL = REDIS_SSL_OPTIONS
+# Publishing happens inside web requests (e.g. appointment reminders). With the defaults, an
+# unreachable broker held a request for ~19s before failing; fail fast so callers can degrade.
+CELERY_BROKER_CONNECTION_TIMEOUT = float(_get_env("CELERY_BROKER_CONNECTION_TIMEOUT", "2"))
+CELERY_BROKER_TRANSPORT_OPTIONS = {"socket_connect_timeout": CELERY_BROKER_CONNECTION_TIMEOUT}
+CELERY_TASK_PUBLISH_RETRY_POLICY = {
+    "max_retries": 1,
+    "interval_start": 0,
+    "interval_step": 0.5,
+    "interval_max": 0.5,
+}
 
 # `celery`/`redis` being importable (core.tasking.CELERY_AVAILABLE) doesn't mean a real broker is
 # reachable: without REDIS_URL, CELERY_BROKER_URL falls back to the in-process "memory://" transport,

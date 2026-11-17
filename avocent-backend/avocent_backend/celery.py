@@ -17,4 +17,8 @@ else:
             "task": "compliance.flag_overdue_outpatient_encounters",
             "schedule": crontab(minute=0),
         },
+        "flush-expired-jwt-tokens": {
+            "task": "users.flush_expired_tokens",
+            "schedule": crontab(hour=3, minute=0),
+        },
     }

@@ -1,12 +1,10 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
-from rest_framework_simplejwt.views import TokenRefreshView, TokenVerifyView
+from rest_framework_simplejwt.views import TokenBlacklistView, TokenRefreshView, TokenVerifyView
 
 from users.views import (
     CurrentUserAPIView,
     DepartmentViewSet,
-    LoginAPIView,
-    LogoutAPIView,
     PasswordResetConfirmAPIView,
     PasswordResetRequestAPIView,
     PractitionerProfileViewSet,
@@ -30,14 +28,13 @@ router.register("practitioners", PractitionerProfileViewSet, basename="practitio
 router.register("departments", DepartmentViewSet, basename="department")
 
 urlpatterns = [
-    path("login/", LoginAPIView.as_view(), name="login"),
-    path("logout/", LogoutAPIView.as_view(), name="logout"),
     path("password-reset/", PasswordResetRequestAPIView.as_view(), name="password-reset-request"),
     path("password-reset/confirm/", PasswordResetConfirmAPIView.as_view(), name="password-reset-confirm"),
     path("jwt/token/", TwoFactorTokenObtainPairView.as_view(), name="jwt-token-obtain"),
     path("jwt/token/2fa/", TwoFactorLoginVerifyAPIView.as_view(), name="jwt-token-2fa-verify"),
     path("jwt/refresh/", TokenRefreshView.as_view(), name="jwt-token-refresh"),
     path("jwt/verify/", TokenVerifyView.as_view(), name="jwt-token-verify"),
+    path("jwt/blacklist/", TokenBlacklistView.as_view(), name="jwt-token-blacklist"),
     path("me/", CurrentUserAPIView.as_view(), name="me"),
     path("2fa/setup/", TwoFactorSetupAPIView.as_view(), name="2fa-setup"),
     path("2fa/enable/", TwoFactorEnableAPIView.as_view(), name="2fa-enable"),

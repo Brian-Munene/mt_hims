@@ -1,3 +1,5 @@
+import base64
+
 import pyotp
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -172,3 +174,31 @@ class TwoFactorLoginTests(APITestCase):
         response = self.client.post(TOKEN_2FA_URL, {"challenge_token": challenge, "code": pyotp.TOTP(secret).now()})
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_2fa_user_cannot_get_credentials_from_any_password_only_route(self):
+        """Regression for #35: every route that accepts a password must stop at the 2FA challenge."""
+        self._enable_2fa()
+
+        jwt_response = self.client.post(TOKEN_URL, {"email": self.user.email, "password": "OriginalPass123"})
+        self.assertEqual(jwt_response.status_code, status.HTTP_200_OK, jwt_response.data)
+        self.assertIn("challenge_token", jwt_response.data)
+        self.assertNotIn("access", jwt_response.data)
+        self.assertNotIn("refresh", jwt_response.data)
+
+        for url in ("/api/auth/login/", "/api-auth/login/"):
+            with self.subTest(url=url):
+                response = self.client.post(url, {"username": self.user.email, "password": "OriginalPass123"})
+                self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+        credentials = base64.b64encode(f"{self.user.email}:OriginalPass123".encode()).decode()
+        response = self.client.get("/api/auth/me/", HTTP_AUTHORIZATION=f"Basic {credentials}")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_django_session_does_not_authenticate_api_requests(self):
+        """An admin-site session (password only, no TOTP) must not grant API access."""
+        self._enable_2fa()
+        self.client.force_login(self.user)
+
+        response = self.client.get("/api/auth/me/")
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

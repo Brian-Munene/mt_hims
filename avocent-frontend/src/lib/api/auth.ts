@@ -59,6 +59,17 @@ export async function refreshTokens(refresh: string) {
   });
 }
 
+// Blacklists the refresh token server-side so a copy of it (e.g. a leaked
+// cookie) can't keep minting access tokens after the user signs out.
+export async function revokeRefreshToken(refresh: string) {
+  return djangoRequest<Record<string, never>>("/api/auth/jwt/blacklist/", {
+    method: "POST",
+    body: { refresh },
+    token: null,
+    encrypted: true,
+  });
+}
+
 export async function requestPasswordReset(email: string) {
   return djangoRequest<{ detail: string }>("/api/auth/password-reset/", {
     method: "POST",

@@ -5,6 +5,23 @@ from core.serializers import resolve_effective_clinic, resolve_field, validate_c
 from encounters.models import Appointment, AvailabilitySlot, Encounter
 
 SLOT_OVERLAP_ERROR = "This slot overlaps with an existing availability slot for this practitioner."
+APPOINTMENT_CONFLICT_ERROR = "This practitioner already has an appointment at this time."
+APPOINTMENT_UNIQUE_CONSTRAINT = "uniq_active_appointment_per_practitioner_time"
+
+
+def conflicting_appointments(practitioner, scheduled_time, *, exclude_pk=None):
+    """Live appointments that would collide with
+    uniq_active_appointment_per_practitioner_time. Shared by the serializer and
+    the reschedule action so both agree with the database constraint."""
+    appointments = Appointment.objects.filter(
+        practitioner=practitioner,
+        scheduled_time=scheduled_time,
+        status="scheduled",
+        is_active=True,
+    )
+    if exclude_pk is not None:
+        appointments = appointments.exclude(pk=exclude_pk)
+    return appointments
 
 
 def overlapping_availability_slots(practitioner, day_of_week, start_time, end_time, *, exclude_pk=None):
@@ -65,12 +82,27 @@ class AppointmentSerializer(serializers.ModelSerializer):
         validate_clinic_match(self, attrs, "practitioner", "Appointment clinic must match the practitioner clinic.")
         if scheduled_time and scheduled_time < timezone.now():
             raise serializers.ValidationError({"scheduled_time": "Appointment time cannot be in the past."})
+
+        # Fast-path for a friendly 400. The unique constraint is authoritative
+        # under concurrency; the viewset maps its IntegrityError to the same error.
+        practitioner = resolve_field(self, attrs, "practitioner")
+        status = attrs.get("status", self.instance.status if self.instance else "scheduled")
+        is_active = attrs.get("is_active", self.instance.is_active if self.instance else True)
+        if practitioner and scheduled_time and status == "scheduled" and is_active:
+            exclude_pk = self.instance.pk if self.instance else None
+            if conflicting_appointments(practitioner, scheduled_time, exclude_pk=exclude_pk).exists():
+                raise serializers.ValidationError({"scheduled_time": APPOINTMENT_CONFLICT_ERROR})
         return attrs
 
     class Meta:
         model = Appointment
         fields = "__all__"
         read_only_fields = ("id", "created_at", "updated_at", "created_by")
+        # DRF derives a generic "must make a unique set" validator from the
+        # conditional UniqueConstraint; validate() already enforces it with a
+        # clearer message keyed on scheduled_time. Note this also suppresses
+        # validators for any unique constraint added to Appointment later.
+        validators = []
 
 
 class EncounterSerializer(serializers.ModelSerializer):

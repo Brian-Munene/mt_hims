@@ -45,24 +45,24 @@ frontend:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {cpu: 500m, memory: 512Mi}
   # nip.io until the real domain is registered (infra/GCP_MIGRATION.md step 8).
-  publicApiUrl: "https://api.REPLACE-WITH-LB-IP.nip.io"
+  publicApiUrl: "https://api.34.35.7.31.nip.io"
 
 django:
   debug: false
-  frontendUrl: "https://app.REPLACE-WITH-LB-IP.nip.io"
+  frontendUrl: "https://app.34.35.7.31.nip.io"
   security:
     sslRedirect: true
     sessionCookieSecure: true
     csrfCookieSecure: true
     hstsSeconds: 31536000
     csrfTrustedOrigins:
-      - "https://api.REPLACE-WITH-LB-IP.nip.io"
-      - "https://app.REPLACE-WITH-LB-IP.nip.io"
+      - "https://api.34.35.7.31.nip.io"
+      - "https://app.34.35.7.31.nip.io"
 
 postgres:
   internal: false
   # Cloud SQL private IP — terraform output postgres_private_ip.
-  host: "REPLACE-WITH-STAGING-POSTGRES-IP"
+  host: "10.85.0.3"
   port: 5432
   sslMode: require
 
@@ -88,10 +88,10 @@ ingress:
   className: nginx
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-staging
-  apiHost: "api.REPLACE-WITH-LB-IP.nip.io"
-  appHost: "app.REPLACE-WITH-LB-IP.nip.io"
+  apiHost: "api.34.35.7.31.nip.io"
+  appHost: "app.34.35.7.31.nip.io"
   tls:
     - hosts:
-        - "api.REPLACE-WITH-LB-IP.nip.io"
-        - "app.REPLACE-WITH-LB-IP.nip.io"
+        - "api.34.35.7.31.nip.io"
+        - "app.34.35.7.31.nip.io"
       secretName: avocent-tls

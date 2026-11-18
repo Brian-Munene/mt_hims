@@ -1,11 +1,18 @@
-variable "location" {
-  type    = string
-  default = "South Africa North"
+variable "project_id" {
+  description = "Created by infra/terraform/bootstrap."
+  type        = string
+  default     = "avocent-hims-prod"
 }
 
-variable "resource_group_name" {
+variable "region" {
   type    = string
-  default = "rg-avocent-production"
+  default = "africa-south1"
+}
+
+variable "gke_location" {
+  description = "A region = regional cluster: control plane and nodes spread across 3 zones."
+  type        = string
+  default     = "africa-south1"
 }
 
 variable "github_repo" {
@@ -13,32 +20,40 @@ variable "github_repo" {
   default = "Brian-Munene/mt_hims"
 }
 
-variable "cert_manager_email" {
-  description = "Email registered with Let's Encrypt for certificate expiry notices."
+variable "namespace" {
+  description = "Kubernetes namespace of the Helm release (must match deploy-production.yml)."
   type        = string
+  default     = "avocent-prod"
 }
 
-variable "postgres_sku_name" {
+variable "backend_service_account" {
+  description = "Kubernetes ServiceAccount the Django pods run as (serviceAccount.name in values-prod.yaml)."
+  type        = string
+  default     = "avocent-backend"
+}
+
+variable "gke_machine_type" {
   type    = string
-  default = "GP_Standard_D2s_v3" # general-purpose, not burstable — production workload
+  default = "n2-standard-4"
 }
 
-variable "redis_sku_name" {
+variable "gke_node_count" {
+  description = "Per zone — 1 x 3 zones = 3 nodes."
+  type        = number
+  default     = 1
+}
+
+variable "cloudsql_tier" {
   type    = string
-  default = "Standard" # replicated, unlike staging's Basic
+  default = "db-custom-2-8192" # 2 vCPU / 8 GB, dedicated core — production workload
 }
 
-variable "aks_node_vm_size" {
+variable "redis_tier" {
   type    = string
-  default = "Standard_D4s_v5"
+  default = "STANDARD_HA" # replicated, unlike staging's BASIC
 }
 
-variable "aks_node_count" {
-  type    = number
-  default = 3
-}
-
-variable "tags" {
+variable "labels" {
   type = map(string)
   default = {
     environment = "production"

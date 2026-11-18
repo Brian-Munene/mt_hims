@@ -28,7 +28,7 @@ coverage report                       # per-file table in the terminal
 coverage html && open htmlcov/index.html   # browsable line-by-line report
 ```
 
-`.coveragerc` excludes migrations, `tests/` modules, and management/deploy scaffolding (`manage.py`, `asgi.py`, `wsgi.py`, `celery.py`), so the percentage reflects application code, not boilerplate. As of the last run: **151 tests, 81.5% overall coverage**. The weakest spots are `compliance/tasks.py` and `core/management/commands/encrypt_phi_data.py` (both 0% — no test exercises them), and `patients/views.py`/`billing/views.py` in the 50-60% range.
+`.coveragerc` excludes migrations, `tests/` modules, and management/deploy scaffolding (`manage.py`, `asgi.py`, `wsgi.py`, `celery.py`), so the percentage reflects application code, not boilerplate. As of the last coverage run: **81.5% overall** (151 tests at the time; the suite is now 177). The weakest spots are `compliance/tasks.py` and `core/management/commands/encrypt_phi_data.py` (both 0% — no test exercises them), and `patients/views.py`/`billing/views.py` in the 50-60% range.
 
 ## Docker
 
@@ -59,18 +59,43 @@ docker save avocent-frontend:helm | docker exec -i desktop-control-plane ctr --n
 helm install avocent-local deploy/helm/avocent -n avocent --create-namespace -f deploy/helm/values-local.yaml
 ```
 
-The release's NOTES print port-forward commands and the `createsuperuser` bootstrap step. `beat` is pinned to 1 replica (Recreate strategy) so scheduled tasks never double-fire. For real deployments, prefer an external/managed Postgres (`postgres.internal: false` + `postgres.host`) and enable `ingress` with cert-manager.
+The release's NOTES print port-forward commands and the `createsuperuser` bootstrap step. `beat` is pinned to 1 replica (Recreate strategy) so scheduled tasks never double-fire. Migrations run in a Helm hook Job (`post-install,pre-upgrade`) so they never race across web replicas. For real deployments, prefer an external/managed Postgres (`postgres.internal: false` + `postgres.host`) and enable `ingress` with cert-manager.
+
+Values for managed clouds:
+
+| Value | Purpose |
+|---|---|
+| `serviceAccount.create` / `.name` / `.annotations` | ServiceAccount the Django pods run as. On GKE, annotate it with `iam.gke.io/gcp-service-account` for Workload Identity (no key files). |
+| `redis.caCert` | PEM of the external Redis server's CA. It's mounted at `/etc/redis-ca/ca.pem` and sets `REDIS_SSL_CA_CERTS`. |
+| `storage.gcsBucket` | GCS bucket for uploaded media. It sets `GS_BUCKET_NAME`. |
+
+### GCP (GKE) staging and production
+
+Staging and production target GKE in `africa-south1`. Each environment has its own GCP project, private-IP Cloud SQL Postgres 16 and Memorystore Redis (AUTH + TLS), and a private media bucket. The infrastructure is defined in Terraform at [`../infra/terraform`](../infra/terraform). Its README is the runbook, with apply order, cost estimates and the GitHub variables to set. The overlays are [`values-staging.yaml`](../deploy/helm/avocent/values-staging.yaml) and [`values-prod.yaml`](../deploy/helm/avocent/values-prod.yaml).
+
+CI/CD (`.github/workflows/`):
+- `build-and-push.yml`: every push builds both images and tags them with the git SHA in Artifact Registry.
+- `deploy-staging.yml`: deploys staging after a successful build on `main`.
+- `deploy-production.yml`: deploys production on a `v*` tag, after a reviewer approves.
+- All three authenticate with Workload Identity Federation, so GitHub stores no keys.
+- Secrets come from Secret Manager at deploy time and are never committed.
+
+The project moved from Azure AKS in October 2026 ([`../infra/GCP_MIGRATION.md`](../infra/GCP_MIGRATION.md)). The Azure code is preserved at the git tag `azure-final`.
 
 ## Stack & Structure
 
 - Django 5.2.12, Python 3.12, PostgreSQL only (no SQLite fallback), Redis for cache + Celery broker.
 - Custom `users.User` (email login) with roles: Admin, Doctor, Nurse, Lab Technician, Pharmacist, Receptionist, Accountant.
 - Most models inherit `core.CoreModel`: UUID pk, `clinic` FK, `created_at`/`updated_at`/`created_by`, `is_active`, `metadata`.
-- Auth: JWT (`djangorestframework-simplejwt`), DRF token, session, plus self-service email password reset.
+- Auth: JWT (`djangorestframework-simplejwt`), DRF token, session, self-service email password reset, and optional TOTP two-factor authentication (`pyotp`). When 2FA is on, login returns a challenge that `jwt/token/2fa/` completes.
 - API docs via `drf-spectacular` (Swagger/ReDoc); filtering via `django-filter`.
 - Optional AES-256-GCM payload encryption for `/api/` traffic (below) plus field-level PHI encryption at rest.
 - Celery + Redis power appointment reminders, M-PESA callback processing, lab result notifications, and hourly compliance auto-flagging (Beat) — all require `REDIS_URL` to actually fire; without it, scheduling is skipped rather than silently dropped.
 - Email notifications via SMTP (reminders, lab results, password reset) with a delivery log in the admin — inert until `EMAIL_HOST_USER`/`EMAIL_HOST_PASSWORD` are set.
+- Uploaded media (patient documents, signatures, practitioner photos):
+  - With `GS_BUCKET_NAME` set, files go to a private GCS bucket through `django-storages`. They're served as signed URLs that expire after 15 minutes, signed via IAM signBlob under Workload Identity. Same-named uploads get unique names and never overwrite each other.
+  - Without it, files use local `FileSystemStorage`. That's fine for dev and tests, but files are lost on a pod restart.
+- Redis TLS against a server with a private CA (e.g. Memorystore): `REDIS_SSL_CA_CERTS` configures the Django cache, the Celery broker and the result backend together. The CA is pinned and hostname checks are off, because clients connect by IP.
 
 Apps:
 
@@ -97,8 +122,9 @@ Apps:
 | Category | Variables |
 |---|---|
 | Django core | `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS` |
-| Database | `DB_ENGINE`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT` |
-| Redis/Celery | `REDIS_URL`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `CELERY_TASK_ALWAYS_EAGER`, `CELERY_TASK_EAGER_PROPAGATES`, `TELEMEDICINE_CHAT_STATE_CACHE_TIMEOUT`, `APPOINTMENT_REMINDER_LEAD_MINUTES` |
+| Database | `DB_ENGINE`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `DB_SSLMODE` (`require` for Cloud SQL) |
+| Media storage | `GS_BUCKET_NAME` (unset = local filesystem) |
+| Redis/Celery | `REDIS_URL`, `REDIS_SSL_CA_CERTS`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `CELERY_TASK_ALWAYS_EAGER`, `CELERY_TASK_EAGER_PROPAGATES`, `TELEMEDICINE_CHAT_STATE_CACHE_TIMEOUT`, `APPOINTMENT_REMINDER_LEAD_MINUTES` |
 | Email | `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_USE_TLS`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `DEFAULT_FROM_EMAIL`, `FRONTEND_URL`, `PASSWORD_RESET_TIMEOUT` |
 | API/field encryption | `API_ENCRYPTION_ENABLED`, `API_ENCRYPTION_ENFORCE`, `API_ENCRYPTION_KEY`, `FIELD_ENCRYPTION_KEY` |
 | TLS/reverse proxy (staging/prod) | `API_DOMAIN`, `APP_DOMAIN`, `ACME_EMAIL`, `SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, `SECURE_HSTS_SECONDS`, `CSRF_TRUSTED_ORIGINS` |
@@ -115,7 +141,7 @@ python manage.py test users.tests.test_serializers     # one module
 
 ## API Surface
 
-- Auth — `/api/auth/`: login, logout, JWT, password reset, users/roles/departments/practitioners (`POST /api/auth/practitioners/` supports unified onboarding: user + profile + role in one request)
+- Auth — `/api/auth/`: login, logout, JWT (+ `jwt/token/2fa/` verify step), password reset, 2FA `2fa/setup|enable|disable/`, users/roles/departments/practitioners (`POST /api/auth/practitioners/` supports unified onboarding: user + profile + role in one request)
 - `/api/patients/` (+ `export-csv`/`import-csv`), `/api/booking/`, `/api/encounters/`, `/api/clinical/`
 - `/api/billing/` (+ `/report/` for revenue breakdowns), `/api/pharmacy/`, `/api/laboratory/`, `/api/telemedicine/`
 - `/api/organization/`, `/api/compliance/`, `/api/notifications/` (+ email log), `/api/audit/`
@@ -140,8 +166,8 @@ Implementation: [core/middleware.py](core/middleware.py), [core/encryption.py](c
 - A real M-PESA webhook (currently processes stored callback payloads, not a live inbound endpoint)
 - Richer per-practitioner pricing rules for auto-generated invoices
 - SMS/WhatsApp notifications (email is implemented; these are still stubs)
-- Doctor compliance documents, video consultations (Whereby), 2FA/TOTP, public booking portal
+- Doctor compliance documents, video consultations (Whereby), public booking portal
 - Multi-clinic/multi-tenancy (schema supports it via `clinic` FK; platform is single-tenant today)
-- Kubernetes/managed-platform deployment (current hardening targets a single Docker Compose host behind Caddy)
-- Error monitoring (e.g. Sentry) and automated database backups
+- GKE staging/production: the Terraform, Helm and CI code is written but not yet applied (see [`../infra/terraform`](../infra/terraform))
+- Error monitoring (e.g. Sentry). Cloud SQL automated backups and PITR are configured in Terraform, and will be active once it's applied.
 - Full end-to-end workflow test coverage; deeper service-layer orchestration

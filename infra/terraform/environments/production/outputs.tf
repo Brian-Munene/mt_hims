@@ -1,38 +1,51 @@
-output "resource_group_name" {
-  value = azurerm_resource_group.this.name
+output "gke_cluster_name" {
+  value = module.gke.name
 }
 
-output "aks_cluster_name" {
-  value = module.aks.name
+output "gke_location" {
+  value = module.gke.location
 }
 
-output "postgres_fqdn" {
+output "postgres_private_ip" {
   description = "Set this as `postgres.host` in deploy/helm/avocent/values-prod.yaml."
-  value       = module.postgres.fqdn
+  value       = module.cloudsql.private_ip
 }
 
-output "egress_ip" {
-  description = "The cluster's static outbound/ingress IP — use this to derive the nip.io hostnames (api.<ip>.nip.io / app.<ip>.nip.io) once ingress-nginx is up, and to fill in the REPLACE-WITH-LB-IP placeholders in values-prod.yaml."
-  value       = module.aks.egress_ip
+output "cloudsql_connection_name" {
+  value = module.cloudsql.connection_name
 }
 
-output "key_vault_name" {
-  description = "Set as the KEY_VAULT_NAME repo/environment variable for .github/workflows/deploy-production.yml."
-  value       = module.keyvault.name
+output "ingress_ip" {
+  description = "Replaces REPLACE-WITH-LB-IP in values-prod.yaml (api.<ip>.nip.io / app.<ip>.nip.io)."
+  value       = module.ingress.ip_address
 }
 
-output "github_oidc_client_id" {
-  description = "Set as the AZURE_CLIENT_ID repo/environment variable for .github/workflows/deploy-production.yml. Not a secret."
-  value       = module.github_oidc.client_id
+output "media_bucket" {
+  value = google_storage_bucket.media.name
+}
+
+output "app_service_account" {
+  value = google_service_account.app.email
 }
 
 output "next_steps" {
   value = <<-EOT
-    1. az aks get-credentials --resource-group ${azurerm_resource_group.this.name} --name ${module.aks.name}
+    1. gcloud container clusters get-credentials ${module.gke.name} --location ${module.gke.location} --project ${var.project_id}
     2. kubectl apply -f ../../../k8s/cluster-issuer-prod.yaml   (after cert-manager's CRDs are ready — check with `kubectl get crd | grep cert-manager`)
-    3. Replace every REPLACE-WITH-LB-IP in deploy/helm/avocent/values-prod.yaml with: ${module.aks.egress_ip}
-    4. Set these as GitHub repo/environment ("production") variables: AZURE_CLIENT_ID=${module.github_oidc.client_id}, KEY_VAULT_NAME=${module.keyvault.name}, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID
-    5. In GitHub repo Settings -> Environments -> production: add required reviewers (manual, no Terraform/API path for a personal-account repo).
-    6. Push a v* tag — .github/workflows/deploy-production.yml takes it from here.
+    3. In deploy/helm/avocent/values-prod.yaml, set:
+         REPLACE-WITH-LB-IP          -> ${module.ingress.ip_address}
+         postgres.host               -> ${module.cloudsql.private_ip}
+         storage.gcsBucket           -> ${google_storage_bucket.media.name}
+         serviceAccount annotation   -> ${google_service_account.app.email}
+    4. GitHub Environment "production" variables:
+         GCP_PROJECT_ID   = ${var.project_id}
+         GCP_WIF_PROVIDER = ${module.github_oidc.workload_identity_provider}
+         GCP_DEPLOY_SA    = ${module.github_oidc.deploy_service_account}
+         GKE_CLUSTER_NAME = ${module.gke.name}
+         GKE_LOCATION     = ${module.gke.location}
+    5. Back up FIELD_ENCRYPTION_KEY offline:
+         gcloud secrets versions access latest --secret FIELD_ENCRYPTION_KEY --project ${var.project_id}
+    6. In GitHub repo Settings -> Environments -> production: add required reviewers.
+    7. Push a v* tag — .github/workflows/deploy-production.yml takes it from here.
   EOT
 }

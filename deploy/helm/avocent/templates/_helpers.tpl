@@ -65,3 +65,31 @@ envFrom:
   - secretRef:
       name: {{ include "avocent.fullname" . }}-backend
 {{- end -}}
+
+{{/* ServiceAccount the Django pods run as (Workload Identity on GKE). */}}
+{{- define "avocent.backendServiceAccountName" -}}
+{{- default (printf "%s-backend" (include "avocent.fullname" .)) .Values.serviceAccount.name -}}
+{{- end -}}
+
+{{/* Pod-level fields shared by web, worker, beat and the migrate Job. */}}
+{{- define "avocent.backendPodSpec" -}}
+{{- if .Values.serviceAccount.create }}
+serviceAccountName: {{ include "avocent.backendServiceAccountName" . }}
+{{- end }}
+{{- if .Values.redis.caCert }}
+volumes:
+  - name: redis-ca
+    configMap:
+      name: {{ include "avocent.fullname" . }}-redis-ca
+{{- end }}
+{{- end -}}
+
+{{/* Container-level mounts matching avocent.backendPodSpec's volumes. */}}
+{{- define "avocent.backendVolumeMounts" -}}
+{{- if .Values.redis.caCert }}
+volumeMounts:
+  - name: redis-ca
+    mountPath: /etc/redis-ca
+    readOnly: true
+{{- end }}
+{{- end -}}

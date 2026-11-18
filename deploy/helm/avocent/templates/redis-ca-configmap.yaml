@@ -1,0 +1,14 @@
+{{- if .Values.redis.caCert }}
+# CA that signed the external Redis server's TLS cert (e.g. Memorystore's
+# per-instance Google-managed CA). Not a secret — mounted at
+# /etc/redis-ca/ca.pem and referenced by REDIS_SSL_CA_CERTS.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "avocent.fullname" . }}-redis-ca
+  labels:
+    {{- include "avocent.labels" . | nindent 4 }}
+data:
+  ca.pem: |
+    {{- .Values.redis.caCert | nindent 4 }}
+{{- end }}

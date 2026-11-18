@@ -8,6 +8,8 @@ from users.serializer_restrictions import require_any_role
 
 
 class MedicationSerializer(serializers.ModelSerializer):
+    clinic_name = serializers.CharField(source="clinic.name", read_only=True)
+
     def validate(self, attrs):
         if self.instance is None or attrs:
             require_any_role(

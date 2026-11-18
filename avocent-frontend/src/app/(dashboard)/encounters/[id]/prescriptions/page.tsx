@@ -1,7 +1,8 @@
-import { CrudPanel } from "@/components/shared/crud-panel";
+import { CrudPanel, type CrudField } from "@/components/shared/crud-panel";
 import { PageHeader } from "@/components/shared/page-header";
 import { PrescriptionForm } from "@/components/pharmacy/prescription-form";
-import { listPractitioners, listUsers } from "@/lib/api/admin";
+import { listClinics, listPractitioners, listUsers } from "@/lib/api/admin";
+import { getEncounter } from "@/lib/api/encounters";
 import { listMedications, listPrescriptions } from "@/lib/api/pharmacy";
 import { requireUser } from "@/lib/auth";
 import { buildPractitionerOptions } from "@/lib/options";
@@ -11,12 +12,28 @@ export default async function EncounterPrescriptionsPage({ params }: { params: P
   const { id } = await params;
   const user = await requireUser();
   const isAdmin = hasAnyRole(user, ["Admin"]);
+
+  // A prescription belongs to its encounter's clinic. Superusers may open an
+  // encounter from any clinic, so scope their option lists to that clinic and
+  // send it explicitly; everyone else is pinned to their own clinic by the API.
+  const [encounter, clinics] = user.is_superuser
+    ? await Promise.all([getEncounter(id), listClinics()])
+    : [null, null];
+  const clinicParam = encounter?.clinic;
+  const encounterClinic = clinics?.results.find((clinic) => clinic.id === clinicParam);
+  const clinicOptions = encounterClinic
+    ? [{ value: encounterClinic.id, label: `${encounterClinic.name} (${encounterClinic.code})` }]
+    : [];
+
   const [prescriptions, practitioners, users, medications] = await Promise.all([
-    listPrescriptions(id),
-    listPractitioners(),
+    listPrescriptions(id, clinicParam),
+    listPractitioners(clinicParam),
     isAdmin ? listUsers() : Promise.resolve({ results: [], count: 0, next: null, previous: null }),
-    listMedications(),
+    listMedications(clinicParam),
   ]);
+  const clinicField: CrudField[] = clinicParam
+    ? [{ name: "clinic", label: "Clinic", required: true, hidden: true, defaultValue: clinicParam }]
+    : [];
   const userById = new Map(users.results.map((staffUser) => [staffUser.id, staffUser]));
   const practitionerOptions = buildPractitionerOptions(practitioners.results, userById);
 
@@ -27,6 +44,8 @@ export default async function EncounterPrescriptionsPage({ params }: { params: P
         medications={medications.results}
         practitionerOptions={practitionerOptions}
         encounterId={id}
+        clinicOptions={clinicOptions}
+        defaultClinic={clinicParam}
       />
 
       <CrudPanel
@@ -49,6 +68,7 @@ export default async function EncounterPrescriptionsPage({ params }: { params: P
             ],
           },
           { name: "hash_signature", label: "Signature hash", required: true },
+          ...clinicField,
         ]}
       />
     </div>

@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { BrowserApiError, browserRequest, flattenValidationErrors } from "@/lib/api/browser";
 import type { FieldOption } from "@/lib/options";
 
-type FieldType = "text" | "textarea" | "number" | "checkbox" | "select" | "datetime-local";
+type FieldType = "text" | "textarea" | "number" | "checkbox" | "select" | "date" | "datetime-local";
 
 export interface CrudField {
   name: string;
@@ -34,9 +34,29 @@ interface CrudPanelProps<T extends { id: string }> {
   fields: CrudField[];
   initialItems: T[];
   mode?: CrudPanelMode;
+  /** Record field shown as each card's caption (e.g. "clinic_name"); defaults to the record ID. */
+  captionField?: string;
 }
 
-function makeSchema(fields: CrudField[]) {
+/** Value to prefill an input with from an existing record. */
+export function recordFieldValue(item: Record<string, unknown>, field: CrudField): unknown {
+  const value = item[field.name];
+  if (field.type === "checkbox") return Boolean(value);
+  if (field.type === "datetime-local" && typeof value === "string") return value.slice(0, 16);
+  if (field.type === "date" && typeof value === "string") return value.slice(0, 10);
+  return typeof value === "string" || typeof value === "number" ? String(value) : "";
+}
+
+/** Display text for a field value: option labels for selects, raw value otherwise. */
+function displayValue(field: CrudField, value: unknown): string {
+  if (field.type === "select") {
+    const option = field.options?.find((candidate) => candidate.value === String(value));
+    if (option) return option.label;
+  }
+  return String(value ?? "-");
+}
+
+export function makeSchema(fields: CrudField[]) {
   const entries = fields.map((field) => {
     if (field.type === "checkbox") {
       return [field.name, field.required ? z.boolean() : z.boolean().optional()] as const;
@@ -55,7 +75,22 @@ function makeSchema(fields: CrudField[]) {
   return z.object(Object.fromEntries(entries));
 }
 
-function CrudFields({
+/** Parse a submitted form into a payload for the API using the field definitions. */
+export function parseCrudFormData(fields: CrudField[], schema: ReturnType<typeof makeSchema>, formData: FormData) {
+  const raw: Record<string, unknown> = {};
+  fields.forEach((field) => {
+    if (field.type === "checkbox") {
+      raw[field.name] = formData.get(field.name) === "on";
+      return;
+    }
+    const fallback = field.defaultValue === undefined ? "" : String(field.defaultValue);
+    const value = String(formData.get(field.name) ?? fallback).trim();
+    raw[field.name] = value === "" && !field.required ? undefined : value;
+  });
+  return schema.parse(raw);
+}
+
+export function CrudFields({
   fields,
   titlePrefix,
   getFieldValue,
@@ -115,7 +150,7 @@ function CrudFields({
                     id={titlePrefix ? `${titlePrefix}-${field.name}` : undefined}
                     name={field.name}
                     required={field.required}
-                    type={field.type === "number" || field.type === "datetime-local" ? field.type : "text"}
+                    type={field.type === "number" || field.type === "date" || field.type === "datetime-local" ? field.type : "text"}
                     defaultValue={String(rawValue)}
                   />
                 )}
@@ -135,6 +170,7 @@ export function CrudPanel<T extends { id: string }>({
   fields,
   initialItems,
   mode = "full",
+  captionField,
 }: CrudPanelProps<T>) {
   const [items, setItems] = useState<T[]>(initialItems);
   const [errors, setErrors] = useState<string[]>([]);
@@ -143,25 +179,10 @@ export function CrudPanel<T extends { id: string }>({
   const schema = useMemo(() => makeSchema(fields), [fields]);
   const visibleFields = fields.filter((field) => !field.hidden);
 
-  function getDefaultValue(item: Record<string, unknown>, field: CrudField): unknown {
-    const value = item[field.name];
-    if (field.type === "checkbox") return Boolean(value);
-    if (field.type === "datetime-local" && typeof value === "string") return value.slice(0, 16);
-    return typeof value === "string" || typeof value === "number" ? String(value) : "";
-  }
+  const getDefaultValue = recordFieldValue;
 
   function parseFormData(formData: FormData) {
-    const raw: Record<string, unknown> = {};
-    fields.forEach((field) => {
-      if (field.type === "checkbox") {
-        raw[field.name] = formData.get(field.name) === "on";
-        return;
-      }
-      const fallback = field.defaultValue === undefined ? "" : String(field.defaultValue);
-      const value = String(formData.get(field.name) ?? fallback).trim();
-      raw[field.name] = value === "" && !field.required ? undefined : value;
-    });
-    return schema.parse(raw);
+    return parseCrudFormData(fields, schema, formData);
   }
 
   async function handleCreate(formData: FormData) {
@@ -322,7 +343,7 @@ export function CrudPanel<T extends { id: string }>({
                                     : { activeLabel: "Yes", inactiveLabel: "No" })}
                                 />
                               ) : (
-                                String(record[field.name] ?? "-")
+                                displayValue(field, record[field.name])
                               )}
                             </TableCell>
                           ))}
@@ -376,12 +397,16 @@ export function CrudPanel<T extends { id: string }>({
                     </form>
                   ) : (
                     <div className="space-y-2">
-                      <p className="text-xs text-slate-500">ID: {item.id}</p>
+                      <p className="text-xs text-slate-500">
+                        {captionField
+                          ? String((item as Record<string, unknown>)[captionField] ?? "-")
+                          : `ID: ${item.id}`}
+                      </p>
                       <div className="grid gap-2 md:grid-cols-2">
                         {fields.slice(0, 6).map((field) => (
                           <p key={field.name} className="text-sm text-slate-700">
                             <span className="font-medium text-slate-900">{field.label}:</span>{" "}
-                            {String((item as Record<string, unknown>)[field.name] ?? "-")}
+                            {displayValue(field, (item as Record<string, unknown>)[field.name])}
                           </p>
                         ))}
                       </div>

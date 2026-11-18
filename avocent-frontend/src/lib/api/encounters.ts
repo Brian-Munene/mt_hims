@@ -24,6 +24,8 @@ export async function listEncounters(params?: {
   status?: string;
   encounter_type?: string;
   ordering?: string;
+  /** Honoured for superusers only. */
+  clinic?: string;
 }) {
   return djangoRequest<ApiListResponse<Encounter>>("/api/encounters/encounters/", {
     query: { ordering: params?.ordering ?? "-start_time", ...params },
